@@ -49,7 +49,7 @@ cd tempcontrol
 
 You'll be asked for your password **once**. That installs the privileged helper that fan control and `powermetrics` (per-core frequency/power) require — there is no way to control fans on macOS without root, which is also why this can't ship through the App Store.
 
-After install, the thermometer lands in your menu bar. Click it for the dashboard; hit `[ LOGIN: ON ]` in the footer to start it at every boot.
+After install, the thermometer lands in your menu bar. Click it for the dashboard; hit `[ LAUNCH ON MAC START: ON ]` in the footer to start it at every boot.
 
 ### Uninstall
 
@@ -85,18 +85,111 @@ Capability is detected at runtime: the charge-control SMC keys vary across Apple
 
 Menu bar shows the live hottest die temp; the icon becomes a flame 🔥 while boost is engaged.
 
+## `tempcontrol-cli` — the dashboard from your terminal
+
+Everything the menu bar shows is also available as a command, one subcommand per
+dashboard panel. `install.sh` puts it on your `PATH`:
+
+```bash
+tempcontrol-cli temp        # the TEMP panel
+tempcontrol-cli soc         # the SOC panel
+tempcontrol-cli storage     # the STORAGE panel
+tempcontrol-cli battery     # the BATTERY panel
+tempcontrol-cli all         # every panel
+tempcontrol-cli --help      # usage
+```
+
+```
+$ tempcontrol-cli soc
+
+══ SOC ═════════════════════════════════════════════════════
+
+CPU
+  CHIP                        APPLE M4 PRO
+  CORES                       10P + 4E (14 TOTAL)
+  CPU           [#         ]    6%
+  POWER                       4.1W
+  E00           [##        ]   16%  1.02G
+  E01           [#         ]   11%  1.02G
+  ...
+  P13           [          ]    0%  3.87G
+  DIE °C                      MAX 59.1°C  AVG 56.7°C  (14 SENSORS)
+    PMU TDIE1                 56.2°C
+    PMU TDIE8                 59.1°C
+    ...
+
+GPU
+  GPU           [######    ]   61%
+  DEVICE        [######    ]   61%
+  RENDERER      [#         ]    5%
+  TILER         [          ]    3%
+  FREQ                        1284MHz
+  POWER                       9.2W
+  MEM USED                    7.1G
+  GPU CORES                   20
+  · APPLE EXPOSES THE GPU AS ONE BLOCK — PER-CORE GPU LOAD/TEMP
+  · DOESN'T EXIST ON ANY APP
+
+UNIFIED MEMORY
+  UNIFIED MEMORY                  34.4G / 48.0G
+  USED            [#######   ]     72%
+  APP                             19.6G
+  WIRED                            9.6G
+  COMPRESSED                       5.1G
+  SWAP                             196M
+  PRESSURE                        OK
+```
+
+### For agents and scripts: `--json`
+
+Add `--json` to any command. Stdout is **only** JSON — every numeric row carries
+a machine-readable `raw` and `unit` next to the formatted string, so nothing has
+to be parsed out of display text:
+
+```bash
+$ tempcontrol-cli battery --json | jq '.sections[0].rows[0]'
+{
+  "label": "CHARGE (HARDWARE)",
+  "raw": 74.40826625015019,
+  "unit": "%",
+  "value": "74.4%"
+}
+```
+
+The shape is `{"panel": ..., "sections": [{"title": ..., "note": ..., "rows":
+[{"label", "value", "raw", "unit"}]}]}`; `all --json` returns an array of those
+objects. Keys are always present (`null` rather than absent) and sorted, so two
+runs diff cleanly. Exit code is 0 on success, 1 for an unknown panel (which
+lists the valid names on stderr).
+
+The CLI runs unprivileged. Root-only data — per-core frequency and power
+(`powermetrics`), fan control state, battery charge-control keys — comes from
+the helper daemon; without it the report still prints, with those rows marked
+`NOT RUNNING` rather than failing.
+
+**It cannot drift from the app.** The panel list, the values and the formatting
+all come from one shared `Dashboard` module: adding a panel to the app is a
+compile error until the CLI has a reporter for it. See "Adding a new panel" in
+[PROJECT_NOTES.md](PROJECT_NOTES.md).
+
 ## Troubleshooting
 
 - **"NO HELPER" in the header** — the helper isn't running. Re-run `./scripts/install.sh`.
 - **Weird or missing sensors** — run `swift run tempcontrol-probe` and open an issue with the output. Sensor names vary across M1–M4; the probe output is exactly what's needed to add support.
 - **No frequencies shown** — per-core frequency comes from `powermetrics`, which needs the helper. Load/temps work without it.
+- **`tempcontrol-cli` says the helper isn't running, but it is** — the app and helper exchange a versioned struct; a helper left over from an older build can fail to decode. Re-run `./scripts/install.sh` to rebuild both together.
 - **Per-GPU-core stats?** — Apple doesn't expose them to anyone; the GPU is reported as one block. Nothing to fix.
 
 ## Architecture (for the curious)
 
-Two processes, plain SwiftPM, no Xcode project:
+Two processes plus a shared library, plain SwiftPM, no Xcode project:
 
 - **`TempControl.app`** (menu bar, SwiftUI) — reads everything it can *without* root: per-core load (`host_processor_info`), die temps (IOHID sensor services), memory, storage, GPU utilization (IORegistry), fan RPMs (SMC reads).
+- **`Dashboard`** (library) — the samplers, the snapshot collector, the shared
+  `Fmt` formatters and one `PanelReporting` type per dashboard panel. Both the
+  app and the CLI render *this*, which is why they can't disagree.
+- **`tempcontrol-cli`** — subcommands derived from the same `Panel` enum the app
+  switches on; text for humans, `--json` for agents.
 - **`com.tempcontrol.helper`** (root LaunchDaemon) — the only privileged code: streams `powermetrics`, writes SMC fan keys, runs the 2-second control loop, enforces every safety rule. Talks to the app over XPC; runs `powermetrics` only while the dashboard is open, so it idles at ~0% CPU.
 
 ## License

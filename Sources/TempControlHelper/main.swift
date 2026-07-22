@@ -38,7 +38,12 @@ final class HelperCore {
                 // App is gone — never keep forcing fans unattended.
                 self.fans.disableAndRelease()
             }
-            self.fans.tick()
+            // While we're actively driving the fans, keep powermetrics alive
+            // even with the app closed: real SoC watts are a much better
+            // control signal than the whole-machine rail (which also carries
+            // display brightness and has nothing to do with die heat).
+            if self.fans.engaged { self.pm.markWanted() }
+            self.fans.tick(socPowerW: self.freshSoCPowerW())
             self.pm.reapIfIdle()
             // Battery moves slowly — every 5th tick (10s) is plenty.
             self.tickCount += 1
@@ -46,6 +51,14 @@ final class HelperCore {
         }
         t.resume()
         timer = t
+    }
+
+    /// SoC watts, but only if the sample is recent enough to steer by.
+    private func freshSoCPowerW() -> Double? {
+        guard let s = pm.latest,
+              Date().timeIntervalSince1970 - s.timestamp < 10
+        else { return nil }
+        return s.socPowerW
     }
 
     // MARK: graceful shutdown — always hand fans back to macOS

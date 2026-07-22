@@ -193,12 +193,8 @@ struct TempControlBox: View {
                         StatCell(label: "PEAK (2 MIN)",
                                  value: peakTemp.map { String(format: "%.1f°C", $0) } ?? "-",
                                  color: peakTemp.map(TUI.tempColor) ?? TUI.dim)
-                        StatCell(label: "FAN AVG",
-                                 value: avgFanRPM.map { String(format: "%.0f RPM", $0) } ?? "-",
-                                 color: TUI.fan)
-                        StatCell(label: "SYS POWER",
-                                 value: store.snap.systemPowerW.map { String(format: "%.1fW", $0) } ?? "-",
-                                 color: TUI.amber)
+                        StatCell(label: heatLoadLabel, value: heatLoadValue, color: TUI.amber)
+                        StatCell(label: "TREND", value: trendValue, color: trendColor)
                     }
                     if control?.atMax == true {
                         Text("FANS AT 100% AND STILL OVER TARGET — THIS WORKLOAD MAY\nNOT BE HOLDABLE AT \(Int(store.desiredTarget))°C. RAISE THE TARGET OR REDUCE LOAD.")
@@ -222,10 +218,29 @@ struct TempControlBox: View {
         return peak > 0 ? peak : nil
     }
 
-    private var avgFanRPM: Double? {
-        let fans = store.snap.fans
-        guard !fans.isEmpty else { return nil }
-        return fans.map(\.actualRPM).reduce(0, +) / Double(fans.count)
+    /// The power the controller is regulating against — SoC watts when the
+    /// helper has powermetrics up, whole-machine otherwise. Naming the source
+    /// matters: the two are different numbers and only one is really die heat.
+    private var heatLoadLabel: String {
+        guard let c = store.snap.control, c.controlPowerW != nil else { return "HEAT LOAD" }
+        return c.powerIsSoC ? "HEAT LOAD (SOC)" : "HEAT LOAD (SYS)"
+    }
+
+    private var heatLoadValue: String {
+        let watts = store.snap.control?.controlPowerW ?? store.snap.systemPowerW
+        return watts.map { String(format: "%.1fW", $0) } ?? "-"
+    }
+
+    private var trendValue: String {
+        guard let slope = store.snap.control?.tempSlopeCPerMin else { return "-" }
+        if abs(slope) < 0.5 { return "STEADY" }
+        return String(format: "%+.1f°C/M", slope)
+    }
+
+    private var trendColor: Color {
+        guard let slope = store.snap.control?.tempSlopeCPerMin else { return TUI.dim }
+        if abs(slope) < 0.5 { return TUI.mem }
+        return slope > 0 ? TUI.red : TUI.cpu
     }
 
     private var modeText: String {

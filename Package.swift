@@ -16,10 +16,24 @@ let package = Package(
             dependencies: ["CShims"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Samplers, snapshot collection and the per-panel report layer.
+        // Shared by the menu bar app and the CLI so neither can drift from
+        // the other. Deliberately NOT a dependency of the root helper.
+        .target(
+            name: "Dashboard",
+            dependencies: ["Shared"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // The menu bar app.
         .executableTarget(
             name: "TempControl",
-            dependencies: ["Shared", "CShims"],
+            dependencies: ["Shared", "CShims", "Dashboard"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // One subcommand per dashboard panel, for humans and agents.
+        .executableTarget(
+            name: "tempcontrol-cli",
+            dependencies: ["Dashboard", "Shared"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Diagnostic CLI: prints what the sensors/SMC expose on this Mac.

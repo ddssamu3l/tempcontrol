@@ -1,29 +1,7 @@
 import Foundation
 import Combine
 import Shared
-
-struct Snapshot {
-    var date = Date()
-    var coreLoads: [Double] = []
-    var totalLoad: Double = 0
-    var sensors: [TempSensor] = []
-    var hottest: Double?
-    var mem = MemStats()
-    var disk = DiskStats()
-    var gpu = GPUStats()
-    var fans: [FanState] = []
-    var fanCount: Int = 0
-    /// Whole-machine draw from the SMC (PSTR) — includes display, SSD, fans;
-    /// works without the helper.
-    var systemPowerW: Double?
-    /// Actual adapter input right now (SMC PDTR), not the adapter's rating.
-    var adapterPowerW: Double?
-    var battery: BatteryInfo?
-    var batteryControl: BatteryControlState?
-    var pm: PMSample?
-    var control: ControlStatus?
-    var helperAvailable = false
-}
+import Dashboard
 
 /// Fixed-length rolling history for the sparklines.
 struct History {
@@ -56,14 +34,11 @@ final class MetricsStore: ObservableObject {
     @Published var desiredEnabled = false
     @Published var batterySettings = BatterySettings()
 
-    let sysInfo = SystemInfo.detect()
+    /// Same collector the CLI uses — one definition of "a sample".
+    private let collector = SnapshotCollector()
+    var sysInfo: SystemInfo { collector.sysInfo }
+    private var helper: HelperClient { collector.helper }
 
-    private let cpuSampler = CPULoadSampler()
-    private let diskSampler = DiskSampler()
-    private let sensors = HIDSensors()
-    private let smc = SMC()
-    private let helper = HelperClient()
-    private let batteryReader = BatteryReader()
     private let queue = DispatchQueue(label: "tempcontrol.metrics", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var syncedControlFromHelper = false
@@ -90,20 +65,9 @@ final class MetricsStore: ObservableObject {
     }
 
     private func sampleOnce() {
-        var s = Snapshot()
-        s.date = Date()
-        s.coreLoads = cpuSampler.sample()
-        s.totalLoad = s.coreLoads.isEmpty ? 0 : s.coreLoads.reduce(0, +) / Double(s.coreLoads.count)
-        s.sensors = sensors.read()
-        s.hottest = s.sensors.filter(\.isDie).map(\.celsius).max()
-        s.mem = sampleMemory(totalB: sysInfo.memTotalB)
-        s.disk = diskSampler.sample()
-        s.gpu = sampleGPU()
-        s.fans = smc?.allFans() ?? []
-        s.fanCount = smc?.fanCount ?? 0
-        s.systemPowerW = smc?.double("PSTR")
-        s.adapterPowerW = smc?.double("PDTR")
-        s.battery = batteryReader.read()
+        // Local (unprivileged) half of the snapshot; the helper reply is
+        // folded in below, exactly as before.
+        let s = collector.sampleLocal()
 
         let wantFullSample = popoverOpen
         let needHeartbeat = desiredEnabled
@@ -154,7 +118,9 @@ final class MetricsStore: ObservableObject {
             self.history.push(\.cpu, s.totalLoad)
             self.history.push(\.gpu, s.gpu.deviceUtil ?? 0)
             self.history.push(\.temp, s.hottest ?? 0)
-            self.history.push(\.power, s.pm?.combinedPowerW ?? 0)
+            // socPowerW, not combinedPowerW — combined_power isn't reported on
+            // every chip/OS, and the sparkline must match the PACKAGE readout.
+            self.history.push(\.power, s.pm?.socPowerW ?? 0)
             self.history.push(\.diskRead, s.disk.readBps)
             self.history.push(\.diskWrite, s.disk.writeBps)
             self.history.push(\.fanRPM, s.fans.map(\.actualRPM).max() ?? 0)

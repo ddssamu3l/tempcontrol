@@ -149,4 +149,20 @@ public struct BatteryControlState: Codable {
     public var inhibitKeys: [String] = []
     public var dischargeKey: String?
     public init() {}
+
+    /// Tolerant decoding — see the note on `ControlStatus.init(from:)`. A
+    /// helper that predates a field must degrade, not sink the whole payload.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        settings = try c.decodeIfPresent(BatterySettings.self, forKey: .settings) ?? BatterySettings()
+        supported = try c.decodeIfPresent(Bool.self, forKey: .supported) ?? false
+        dischargeSupported = try c.decodeIfPresent(Bool.self, forKey: .dischargeSupported) ?? false
+        ledSupported = try c.decodeIfPresent(Bool.self, forKey: .ledSupported) ?? false
+        chargingInhibited = try c.decodeIfPresent(Bool.self, forKey: .chargingInhibited) ?? false
+        forcingDischarge = try c.decodeIfPresent(Bool.self, forKey: .forcingDischarge) ?? false
+        topUpActive = try c.decodeIfPresent(Bool.self, forKey: .topUpActive) ?? false
+        calibration = try c.decodeIfPresent(CalibrationPhase.self, forKey: .calibration) ?? .idle
+        inhibitKeys = try c.decodeIfPresent([String].self, forKey: .inhibitKeys) ?? []
+        dischargeKey = try c.decodeIfPresent(String.self, forKey: .dischargeKey)
+    }
 }

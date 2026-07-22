@@ -1,14 +1,12 @@
 import SwiftUI
 import ServiceManagement
 import Shared
+import Dashboard
 
-/// Add a case + view here to grow the app with more sections later.
-enum Panel: String, CaseIterable {
-    case temp = "TEMP"
-    case soc = "SOC"
-    case storage = "STORAGE"
-    case battery = "BATTERY"
-}
+// `Panel` lives in the Dashboard module (Sources/Dashboard/Panel.swift) so the
+// app and the CLI enumerate the exact same set of sections. Adding a case
+// there requires both a view in the switch below and a `PanelReporting` type
+// — see "Adding a new panel" in PROJECT_NOTES.md.
 
 struct DashboardView: View {
     @EnvironmentObject var store: MetricsStore

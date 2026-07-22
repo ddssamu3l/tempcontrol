@@ -1,4 +1,5 @@
 import SwiftUI
+import Dashboard
 
 /// Black terminal aesthetic: monospace, thin rule lines, color only where it
 /// carries meaning.
@@ -38,16 +39,6 @@ enum TUI {
     }
 }
 
-func formatBytes(_ b: Int64) -> String {
-    let g = Double(b) / 1_073_741_824
-    if g >= 100 { return String(format: "%.0fG", g) }
-    if g >= 1 { return String(format: "%.1fG", g) }
-    return String(format: "%.0fM", Double(b) / 1_048_576)
-}
-
-func formatRate(_ bps: Double) -> String {
-    let m = bps / 1_048_576
-    if m >= 1000 { return String(format: "%.1fG/s", m / 1024) }
-    if m >= 1 { return String(format: "%.0fM/s", m) }
-    return String(format: "%.0fK/s", bps / 1024)
-}
+// Number formatting deliberately lives in `Fmt` (Sources/Dashboard/Fmt.swift)
+// so the views and `tempcontrol-cli` render identical strings. Call Fmt.bytes,
+// Fmt.rate, Fmt.temp, Fmt.watts, Fmt.percent, ... rather than String(format:).

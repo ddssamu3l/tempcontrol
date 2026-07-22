@@ -3,6 +3,7 @@
 #   - TempControl.app             -> /Applications
 #   - root helper (fan control)   -> /Library/PrivilegedHelperTools
 #   - helper LaunchDaemon         -> /Library/LaunchDaemons
+#   - tempcontrol-cli             -> /usr/local/bin
 # The single sudo prompt is what authorizes fan control + powermetrics.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -10,6 +11,7 @@ cd "$(dirname "$0")/.."
 ./scripts/build.sh
 
 HELPER_LABEL="com.tempcontrol.helper"
+CLI_DST="/usr/local/bin/tempcontrol-cli"
 HELPER_DST="/Library/PrivilegedHelperTools/${HELPER_LABEL}"
 DAEMON_PLIST="/Library/LaunchDaemons/${HELPER_LABEL}.plist"
 
@@ -36,6 +38,12 @@ sudo chown root:wheel "${DAEMON_PLIST}"
 sudo chmod 644 "${DAEMON_PLIST}"
 sudo launchctl bootstrap system "${DAEMON_PLIST}"
 
+echo "==> ${CLI_DST}"
+sudo mkdir -p /usr/local/bin
+sudo cp build/tempcontrol-cli "${CLI_DST}"
+sudo chown root:wheel "${CLI_DST}"
+sudo chmod 755 "${CLI_DST}"
+
 echo "==> launching"
 open /Applications/TempControl.app
 
@@ -43,6 +51,7 @@ cat <<'EOF'
 
 Installed. TempControl is now in your menu bar (thermometer icon).
  - Click it for the dashboard and the temperature dial.
- - Toggle [ LOGIN: ON ] in the app footer to start it at login.
+ - Toggle [ LAUNCH ON MAC START: ON ] in the app footer to start it at login.
+ - Probe it from the terminal: tempcontrol-cli all   (add --json for agents)
  - Uninstall any time with: ./scripts/uninstall.sh
 EOF

@@ -1,5 +1,6 @@
 import SwiftUI
 import Shared
+import Dashboard
 
 /// The BATTERY tab: AlDente's feature set — charge limit, auto-discharge,
 /// sailing, heat protection, calibration, top-up, MagSafe LED — plus live
@@ -27,16 +28,16 @@ struct BatteryStatusBox: View {
             if let b = store.snap.battery {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 14) {
-                        Text(b.hwPercent.map { String(format: "%.1f%%", $0) } ?? "-")
+                        Text(b.hwPercent.map(Fmt.percentOf100) ?? Fmt.none)
                             .font(TUI.mono(24, .bold))
                             .foregroundStyle(TUI.mem)
                         StatCell(label: "MACOS SHOWS",
-                                 value: b.osPercent.map { "\($0)%" } ?? "-",
+                                 value: b.osPercent.map { "\($0)%" } ?? Fmt.none,
                                  color: TUI.dim)
                         StatCell(label: "STATE", value: stateText(b), color: stateColor(b))
                         if let t = b.timeRemainingMin {
                             StatCell(label: b.isCharging ? "TO FULL" : "REMAINING",
-                                     value: String(format: "%d:%02d", t / 60, t % 60))
+                                     value: Fmt.duration(minutes: t))
                         }
                         Spacer()
                     }
@@ -132,7 +133,7 @@ struct PowerFlowBox: View {
         HStack(spacing: 8) {
             Text(label).font(TUI.mono(10)).foregroundStyle(color)
             Spacer()
-            Text(watts.map { String(format: "%5.1fW", $0) } ?? "    -")
+            Text(Fmt.opt(watts, Fmt.wattsPadded, else: "    -"))
                 .font(TUI.mono(11, .semibold)).foregroundStyle(color)
         }
     }
@@ -148,13 +149,13 @@ struct BatteryHealthBox: View {
             if let b = store.snap.battery {
                 HStack(spacing: 18) {
                     StatCell(label: "HEALTH",
-                             value: b.healthPct.map { String(format: "%.0f%%", $0) } ?? "-",
+                             value: b.healthPct.map(Fmt.percentOf100Whole) ?? Fmt.none,
                              color: (b.healthPct ?? 100) < 80 ? TUI.amber : TUI.mem)
-                    StatCell(label: "CYCLES", value: b.cycleCount.map(String.init) ?? "-")
+                    StatCell(label: "CYCLES", value: b.cycleCount.map(String.init) ?? Fmt.none)
                     StatCell(label: "CAPACITY",
                              value: capText(b), color: TUI.dim)
                     StatCell(label: "TEMP",
-                             value: b.temperatureC.map { String(format: "%.1f°C", $0) } ?? "-",
+                             value: Fmt.opt(b.temperatureC, Fmt.temp),
                              color: (b.temperatureC ?? 0) > 35 ? TUI.red : TUI.fg)
                     Spacer()
                     Sparkline(values: store.history.batteryPct, maxValue: 100, color: TUI.mem)
@@ -165,7 +166,7 @@ struct BatteryHealthBox: View {
     }
 
     private func capText(_ b: BatteryInfo) -> String {
-        guard let max = b.rawMaxCapacitymAh, let design = b.designCapacitymAh else { return "-" }
+        guard let max = b.rawMaxCapacitymAh, let design = b.designCapacitymAh else { return Fmt.none }
         return "\(max)/\(design)mAh"
     }
 }
@@ -217,7 +218,7 @@ struct ChargeControlBox: View {
                 Text("CHARGE LIMIT").font(TUI.mono(9)).foregroundStyle(TUI.dim)
                 TUISlider(value: limitBinding, range: 50...100, step: 5,
                           color: TUI.amber,
-                          format: { $0 >= 100 ? "OFF" : String(format: "%.0f%%", $0) },
+                          format: { $0 >= 100 ? "OFF" : Fmt.percentOf100Whole($0) },
                           onCommit: { store.pushBatterySettings() })
             }
 

@@ -4,15 +4,22 @@ import Shared
 
 // MARK: - Static hardware info
 
-struct SystemInfo {
-    let chipName: String
-    let isAppleSilicon: Bool
-    let pCores: Int
-    let eCores: Int
-    let totalCores: Int
-    let memTotalB: Int64
+public struct SystemInfo {
+    public let chipName: String
+    public let isAppleSilicon: Bool
+    public let pCores: Int
+    public let eCores: Int
+    public let totalCores: Int
+    public let memTotalB: Int64
 
-    static func detect() -> SystemInfo {
+    public init(chipName: String, isAppleSilicon: Bool, pCores: Int, eCores: Int,
+                totalCores: Int, memTotalB: Int64) {
+        self.chipName = chipName; self.isAppleSilicon = isAppleSilicon
+        self.pCores = pCores; self.eCores = eCores
+        self.totalCores = totalCores; self.memTotalB = memTotalB
+    }
+
+    public static func detect() -> SystemInfo {
         let chip = sysctlString("machdep.cpu.brand_string") ?? "Unknown"
         // perflevel0 = performance cores, perflevel1 = efficiency cores.
         let p = sysctlInt("hw.perflevel0.physicalcpu") ?? 0
@@ -29,10 +36,10 @@ struct SystemInfo {
     }
 
     /// Core IDs are cluster-ordered on Apple Silicon: efficiency cores first.
-    func isPCore(_ id: Int) -> Bool { id >= eCores }
+    public func isPCore(_ id: Int) -> Bool { id >= eCores }
 }
 
-func sysctlString(_ name: String) -> String? {
+public func sysctlString(_ name: String) -> String? {
     var size = 0
     guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
     var buf = [CChar](repeating: 0, count: size)
@@ -40,7 +47,7 @@ func sysctlString(_ name: String) -> String? {
     return String(cString: buf)
 }
 
-func sysctlInt(_ name: String) -> Int? {
+public func sysctlInt(_ name: String) -> Int? {
     var value: Int64 = 0
     var size = MemoryLayout<Int64>.size
     guard sysctlbyname(name, &value, &size, nil, 0) == 0 else { return nil }
@@ -49,11 +56,13 @@ func sysctlInt(_ name: String) -> Int? {
 
 // MARK: - Per-core CPU load (no root needed)
 
-final class CPULoadSampler {
+public final class CPULoadSampler {
+    public init() {}
+
     private var prev: [[UInt32]] = []
 
     /// Returns per-core load 0...1, in core-ID order.
-    func sample() -> [Double] {
+    public func sample() -> [Double] {
         var cpuCount: natural_t = 0
         var info: processor_info_array_t?
         var infoCount: mach_msg_type_number_t = 0
@@ -89,18 +98,19 @@ final class CPULoadSampler {
 
 // MARK: - Memory (unified — shared by CPU and GPU on Apple Silicon)
 
-struct MemStats {
-    var totalB: Int64 = 0
-    var usedB: Int64 = 0
-    var appB: Int64 = 0
-    var wiredB: Int64 = 0
-    var compressedB: Int64 = 0
-    var swapUsedB: Int64 = 0
+public struct MemStats {
+    public var totalB: Int64 = 0
+    public var usedB: Int64 = 0
+    public var appB: Int64 = 0
+    public var wiredB: Int64 = 0
+    public var compressedB: Int64 = 0
+    public var swapUsedB: Int64 = 0
     /// 1 = normal, 2 = warning, 4 = critical (kernel levels)
-    var pressureLevel: Int = 1
+    public var pressureLevel: Int = 1
+    public init() {}
 }
 
-func sampleMemory(totalB: Int64) -> MemStats {
+public func sampleMemory(totalB: Int64) -> MemStats {
     var stats = MemStats()
     stats.totalB = totalB
 
@@ -137,33 +147,38 @@ func sampleMemory(totalB: Int64) -> MemStats {
 
 // MARK: - Storage: capacity, volumes, and detailed I/O
 
-struct VolumeInfo: Identifiable {
-    var id: String { path }
-    let path: String
-    let name: String
-    let totalB: Int64
-    let freeB: Int64
+public struct VolumeInfo: Identifiable {
+    public var id: String { path }
+    public let path: String
+    public let name: String
+    public let totalB: Int64
+    public let freeB: Int64
+
+    public init(path: String, name: String, totalB: Int64, freeB: Int64) {
+        self.path = path; self.name = name; self.totalB = totalB; self.freeB = freeB
+    }
 }
 
-struct DiskStats {
-    var totalB: Int64 = 0
+public struct DiskStats {
+    public var totalB: Int64 = 0
     /// Finder-style free space (includes purgeable).
-    var freeB: Int64 = 0
-    var purgeableB: Int64 = 0
-    var readBps: Double = 0
-    var writeBps: Double = 0
-    var readIOPS: Double = 0
-    var writeIOPS: Double = 0
+    public var freeB: Int64 = 0
+    public var purgeableB: Int64 = 0
+    public var readBps: Double = 0
+    public var writeBps: Double = 0
+    public var readIOPS: Double = 0
+    public var writeIOPS: Double = 0
     /// Average time per I/O over the last sample window.
-    var readLatencyMs: Double = 0
-    var writeLatencyMs: Double = 0
+    public var readLatencyMs: Double = 0
+    public var writeLatencyMs: Double = 0
     /// Cumulative since boot (the raw driver counters).
-    var bootReadB: Int64 = 0
-    var bootWriteB: Int64 = 0
-    var volumes: [VolumeInfo] = []
+    public var bootReadB: Int64 = 0
+    public var bootWriteB: Int64 = 0
+    public var volumes: [VolumeInfo] = []
+    public init() {}
 }
 
-final class DiskSampler {
+public final class DiskSampler {
     private struct Counters {
         var readB: Int64 = 0, writeB: Int64 = 0
         var readOps: Int64 = 0, writeOps: Int64 = 0
@@ -171,8 +186,9 @@ final class DiskSampler {
     }
     private var prev: Counters?
     private var prevTime: Date?
+    public init() {}
 
-    func sample() -> DiskStats {
+    public func sample() -> DiskStats {
         var stats = DiskStats()
         sampleCapacity(&stats)
         sampleIO(&stats)
@@ -257,16 +273,17 @@ final class DiskSampler {
 
 // MARK: - GPU utilization (whole-GPU: Apple exposes no per-GPU-core stats)
 
-struct GPUStats {
-    var deviceUtil: Double?
-    var rendererUtil: Double?
-    var tilerUtil: Double?
-    var inUseMemB: Int64?
-    var allocMemB: Int64?
-    var coreCount: Int?
+public struct GPUStats {
+    public var deviceUtil: Double?
+    public var rendererUtil: Double?
+    public var tilerUtil: Double?
+    public var inUseMemB: Int64?
+    public var allocMemB: Int64?
+    public var coreCount: Int?
+    public init() {}
 }
 
-func sampleGPU() -> GPUStats {
+public func sampleGPU() -> GPUStats {
     var stats = GPUStats()
     var iter = io_iterator_t()
     guard IOServiceGetMatchingServices(kIOMainPortDefault,

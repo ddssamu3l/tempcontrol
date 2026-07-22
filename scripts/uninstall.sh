@@ -14,5 +14,6 @@ sudo "/Library/PrivilegedHelperTools/${HELPER_LABEL}" --reset-battery 2>/dev/nul
 sudo rm -f "/Library/LaunchDaemons/${HELPER_LABEL}.plist"
 sudo rm -f "/Library/PrivilegedHelperTools/${HELPER_LABEL}"
 sudo rm -rf "/Library/Application Support/TempControl"
+sudo rm -f /usr/local/bin/tempcontrol-cli
 sudo rm -rf /Applications/TempControl.app
 echo "==> done. Fans and battery charging are back under macOS control."

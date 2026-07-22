@@ -42,6 +42,30 @@ public struct PMSample: Codable {
     public var thermalPressure: String?
     public var timestamp: Double = 0
     public init() {}
+
+    /// Tolerant decoding — see the note on `ControlStatus.init(from:)`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        clusters = try c.decodeIfPresent([PMCluster].self, forKey: .clusters) ?? []
+        cpuPowerW = try c.decodeIfPresent(Double.self, forKey: .cpuPowerW)
+        gpuPowerW = try c.decodeIfPresent(Double.self, forKey: .gpuPowerW)
+        anePowerW = try c.decodeIfPresent(Double.self, forKey: .anePowerW)
+        combinedPowerW = try c.decodeIfPresent(Double.self, forKey: .combinedPowerW)
+        gpuFreqMHz = try c.decodeIfPresent(Double.self, forKey: .gpuFreqMHz)
+        gpuActiveRatio = try c.decodeIfPresent(Double.self, forKey: .gpuActiveRatio)
+        thermalPressure = try c.decodeIfPresent(String.self, forKey: .thermalPressure)
+        timestamp = try c.decodeIfPresent(Double.self, forKey: .timestamp) ?? 0
+    }
+
+    /// Total SoC draw. `combined_power` isn't reported on every chip/OS combo,
+    /// so fall back to summing the blocks powermetrics does give us.
+    public var socPowerW: Double? {
+        if let c = combinedPowerW, c > 0 { return c }
+        let parts = [cpuPowerW, gpuPowerW, anePowerW].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        let sum = parts.reduce(0, +)
+        return sum > 0 ? sum : nil
+    }
 }
 
 // MARK: - Fans
@@ -74,7 +98,44 @@ public struct ControlStatus: Codable {
     public var fanLevel: Double?
     /// Fans pinned at 100% but still over target — target may be unreachable.
     public var atMax = false
+    /// Smoothed power the controller is currently regulating against (watts).
+    public var controlPowerW: Double?
+    /// True when that power is real SoC draw (powermetrics); false when it's
+    /// the whole-machine SMC rail, which is the headless fallback.
+    public var powerIsSoC = false
+    /// Smoothed rate of change of the hottest die, °C per minute. The loop
+    /// leans on this to act before heat lands rather than after.
+    public var tempSlopeCPerMin: Double?
+    /// Learned cooling demand: fan level per watt. Exposed for diagnostics —
+    /// it's the state that lets the loop hold a steady speed at target.
+    public var conductance: Double?
     public init() {}
+
+    /// Tolerant decoding, deliberately hand-written.
+    ///
+    /// Swift's synthesized `init(from:)` requires every key to be PRESENT even
+    /// when the property has a default value — so the moment the app gains a
+    /// field the helper doesn't send yet, the whole payload fails to decode and
+    /// the app reports "no helper" instead of degrading. App and helper are
+    /// installed together by scripts/install.sh, but nothing forces a user to
+    /// keep them in lockstep. Every field here is optional on the wire.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        helperVersion = try c.decodeIfPresent(Int.self, forKey: .helperVersion) ?? 0
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        targetTemp = try c.decodeIfPresent(Double.self, forKey: .targetTemp) ?? 80
+        engaged = try c.decodeIfPresent(Bool.self, forKey: .engaged) ?? false
+        commandedRPM = try c.decodeIfPresent(Double.self, forKey: .commandedRPM)
+        hottestTemp = try c.decodeIfPresent(Double.self, forKey: .hottestTemp)
+        fanCount = try c.decodeIfPresent(Int.self, forKey: .fanCount) ?? 0
+        lowPowerMode = try c.decodeIfPresent(Bool.self, forKey: .lowPowerMode)
+        fanLevel = try c.decodeIfPresent(Double.self, forKey: .fanLevel)
+        atMax = try c.decodeIfPresent(Bool.self, forKey: .atMax) ?? false
+        controlPowerW = try c.decodeIfPresent(Double.self, forKey: .controlPowerW)
+        powerIsSoC = try c.decodeIfPresent(Bool.self, forKey: .powerIsSoC) ?? false
+        tempSlopeCPerMin = try c.decodeIfPresent(Double.self, forKey: .tempSlopeCPerMin)
+        conductance = try c.decodeIfPresent(Double.self, forKey: .conductance)
+    }
 }
 
 public struct HelperSample: Codable {

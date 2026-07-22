@@ -1,4 +1,5 @@
 import SwiftUI
+import Dashboard
 
 /// Bordered section with the title punched into the top rule, like a TUI box:
 /// ┌ CPU ──────────┐
@@ -129,7 +130,7 @@ struct HeatCell: View {
     let hottest: Bool
 
     var body: some View {
-        Text(String(format: "%.0f", temp))
+        Text(Fmt.tempBare(temp))
             .font(TUI.mono(9, hottest ? .bold : .regular))
             .foregroundStyle(hottest ? TUI.bg : TUI.tempColor(temp))
             .frame(width: 24, height: 15)

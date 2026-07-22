@@ -1,5 +1,6 @@
 import SwiftUI
 import Shared
+import Dashboard
 
 /// The STORAGE tab — modeled on what dedicated disk monitors show:
 /// capacity per volume (with purgeable), live throughput, IOPS, I/O latency,
@@ -27,11 +28,11 @@ struct CapacityBox: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     StatCell(label: "INTERNAL SSD",
-                             value: "\(formatBytes(max(0, d.totalB - d.freeB))) / \(formatBytes(d.totalB)) USED")
+                             value: "\(Fmt.bytes(max(0, d.totalB - d.freeB))) / \(Fmt.bytes(d.totalB)) USED")
                     Spacer()
-                    StatCell(label: "FREE", value: formatBytes(d.freeB), color: TUI.mem)
+                    StatCell(label: "FREE", value: Fmt.bytes(d.freeB), color: TUI.mem)
                     if d.purgeableB > 100_000_000 {
-                        StatCell(label: "PURGEABLE", value: formatBytes(d.purgeableB), color: TUI.dim)
+                        StatCell(label: "PURGEABLE", value: Fmt.bytes(d.purgeableB), color: TUI.dim)
                     }
                 }
                 ForEach(d.volumes) { vol in
@@ -56,7 +57,7 @@ struct VolumeRow: View {
                 .frame(width: 110, alignment: .leading)
                 .lineLimit(1)
             HBar(fraction: usedFrac, color: usedFrac > 0.9 ? TUI.red : TUI.fan, height: 8)
-            Text(String(format: "%3.0f%%", usedFrac * 100))
+            Text(Fmt.percentPadded(usedFrac))
                 .font(TUI.mono(9))
                 .frame(width: 30, alignment: .trailing)
                 .foregroundStyle(TUI.fg)
@@ -75,24 +76,24 @@ struct ActivityBox: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        StatCell(label: "READ", value: formatRate(d.readBps), color: TUI.mem)
+                        StatCell(label: "READ", value: Fmt.rate(d.readBps), color: TUI.mem)
                         Sparkline(values: store.history.diskRead, maxValue: nil, color: TUI.mem)
                             .frame(height: 30)
                     }
                     VStack(alignment: .leading, spacing: 3) {
-                        StatCell(label: "WRITE", value: formatRate(d.writeBps), color: TUI.amber)
+                        StatCell(label: "WRITE", value: Fmt.rate(d.writeBps), color: TUI.amber)
                         Sparkline(values: store.history.diskWrite, maxValue: nil, color: TUI.amber)
                             .frame(height: 30)
                     }
                 }
                 HStack(spacing: 18) {
-                    StatCell(label: "READ IOPS", value: String(format: "%.0f", d.readIOPS), color: TUI.mem)
-                    StatCell(label: "WRITE IOPS", value: String(format: "%.0f", d.writeIOPS), color: TUI.amber)
+                    StatCell(label: "READ IOPS", value: Fmt.count(d.readIOPS), color: TUI.mem)
+                    StatCell(label: "WRITE IOPS", value: Fmt.count(d.writeIOPS), color: TUI.amber)
                     StatCell(label: "READ LAT",
-                             value: d.readLatencyMs > 0 ? String(format: "%.2fms", d.readLatencyMs) : "-",
+                             value: d.readLatencyMs > 0 ? Fmt.ms(d.readLatencyMs) : Fmt.none,
                              color: latColor(d.readLatencyMs))
                     StatCell(label: "WRITE LAT",
-                             value: d.writeLatencyMs > 0 ? String(format: "%.2fms", d.writeLatencyMs) : "-",
+                             value: d.writeLatencyMs > 0 ? Fmt.ms(d.writeLatencyMs) : Fmt.none,
                              color: latColor(d.writeLatencyMs))
                     Spacer()
                 }
@@ -118,11 +119,11 @@ struct DriveBox: View {
         BoxSection(title: "DRIVE", accent: TUI.fan) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 18) {
-                    StatCell(label: "READ SINCE BOOT", value: formatBytes(d.bootReadB), color: TUI.mem)
-                    StatCell(label: "WRITTEN SINCE BOOT", value: formatBytes(d.bootWriteB), color: TUI.amber)
+                    StatCell(label: "READ SINCE BOOT", value: Fmt.bytes(d.bootReadB), color: TUI.mem)
+                    StatCell(label: "WRITTEN SINCE BOOT", value: Fmt.bytes(d.bootWriteB), color: TUI.amber)
                     if let nand = nandTemp {
                         StatCell(label: "NAND TEMP",
-                                 value: String(format: "%.1f°C", nand),
+                                 value: Fmt.temp(nand),
                                  color: nand > 60 ? TUI.red : TUI.fg)
                     }
                     Spacer()

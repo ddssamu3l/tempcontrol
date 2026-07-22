@@ -1,5 +1,6 @@
 import SwiftUI
 import Shared
+import Dashboard
 
 struct FansView: View {
     @EnvironmentObject var store: MetricsStore
@@ -38,12 +39,12 @@ struct FanRow: View {
                 .font(TUI.mono(9))
                 .foregroundStyle(TUI.dim)
                 .frame(width: 32, alignment: .leading)
-            Text(String(format: "%4.0f RPM", fan.actualRPM))
+            Text(Fmt.rpmPadded(fan.actualRPM))
                 .font(TUI.mono(11, .semibold))
                 .foregroundStyle(boosting ? TUI.amber : TUI.fg)
                 .frame(width: 68, alignment: .trailing)
             HBar(fraction: frac, color: boosting ? TUI.amber : TUI.fan, height: 7)
-            Text(String(format: "%.0f–%.0f", fan.minRPM, fan.maxRPM))
+            Text(Fmt.rpmRange(fan.minRPM, fan.maxRPM))
                 .font(TUI.mono(8))
                 .foregroundStyle(TUI.faint)
                 .frame(width: 66, alignment: .trailing)

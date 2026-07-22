@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds TempControl.app + the helper binary into ./build (no Xcode project needed).
+# Builds TempControl.app + the helper binary + the CLI into ./build
+# (no Xcode project needed).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,6 +19,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/TempControl "$APP/Contents/MacOS/TempControl"
 cp .build/release/TempControlHelper build/tempcontrol-helper
+# One subcommand per dashboard panel — shipped inside the bundle so an
+# installed app always carries a matching CLI, and installed to
+# /usr/local/bin by install.sh for terminal use.
+cp .build/release/tempcontrol-cli build/tempcontrol-cli
+cp .build/release/tempcontrol-cli "$APP/Contents/Resources/tempcontrol-cli"
 cp resources/Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
@@ -31,6 +37,7 @@ cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # Ad-hoc signing: fine for a locally built app (no Gatekeeper quarantine on
 # files you build yourself).
 codesign --force -s - build/tempcontrol-helper
+codesign --force -s - build/tempcontrol-cli
 codesign --force -s - "$APP"
 
-echo "==> built $APP and build/tempcontrol-helper"
+echo "==> built $APP, build/tempcontrol-helper and build/tempcontrol-cli"

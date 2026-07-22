@@ -1,5 +1,6 @@
 import SwiftUI
 import Shared
+import Dashboard
 
 /// CPU + GPU + unified memory presented as ONE box, because on Apple Silicon
 /// they are one piece of silicon sharing one memory pool and one power budget.
@@ -47,10 +48,10 @@ struct CPUSection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
                 StatCell(label: "CPU",
-                         value: String(format: "%3.0f%%", store.snap.totalLoad * 100),
+                         value: Fmt.percentPadded(store.snap.totalLoad),
                          color: TUI.cpu)
                 StatCell(label: "POWER",
-                         value: store.snap.pm?.cpuPowerW.map { String(format: "%.1fW", $0) } ?? "-",
+                         value: Fmt.opt(store.snap.pm?.cpuPowerW, Fmt.watts),
                          color: TUI.fg)
                 Spacer()
                 Sparkline(values: store.history.cpu, maxValue: 1, color: TUI.cpu)
@@ -93,11 +94,11 @@ struct CoreRow: View {
                 .foregroundStyle(isP ? TUI.cpu : TUI.dim)
                 .frame(width: 22, alignment: .leading)
             HBar(fraction: load, color: TUI.loadColor(load), height: 7)
-            Text(String(format: "%3.0f", load * 100))
+            Text(Fmt.percentBare(load))
                 .font(TUI.mono(9))
                 .foregroundStyle(TUI.fg)
                 .frame(width: 22, alignment: .trailing)
-            Text(freqMHz.map { String(format: "%4.2fG", $0 / 1000) } ?? "  -  ")
+            Text(freqMHz.map(Fmt.ghz(fromMHz:)) ?? "  -  ")
                 .font(TUI.mono(9))
                 .foregroundStyle(TUI.dim)
                 .frame(width: 36, alignment: .trailing)
@@ -147,7 +148,7 @@ struct GPUSection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
                 StatCell(label: "GPU",
-                         value: store.snap.gpu.deviceUtil.map { String(format: "%3.0f%%", $0 * 100) } ?? "  -",
+                         value: store.snap.gpu.deviceUtil.map(Fmt.percentPadded) ?? "  -",
                          color: TUI.gpu)
                 Spacer()
                 Sparkline(values: store.history.gpu, maxValue: 1, color: TUI.gpu)
@@ -162,16 +163,16 @@ struct GPUSection: View {
             }
             HStack(spacing: 18) {
                 StatCell(label: "FREQ",
-                         value: store.snap.pm?.gpuFreqMHz.map { String(format: "%.0fMHz", $0) } ?? "-",
+                         value: Fmt.opt(store.snap.pm?.gpuFreqMHz, Fmt.mhz),
                          color: TUI.fg)
                 StatCell(label: "POWER",
-                         value: store.snap.pm?.gpuPowerW.map { String(format: "%.1fW", $0) } ?? "-",
+                         value: Fmt.opt(store.snap.pm?.gpuPowerW, Fmt.watts),
                          color: TUI.fg)
                 StatCell(label: "MEM USED",
-                         value: store.snap.gpu.inUseMemB.map(formatBytes) ?? "-",
+                         value: store.snap.gpu.inUseMemB.map(Fmt.bytes) ?? Fmt.none,
                          color: TUI.fg)
                 StatCell(label: "MEM ALLOC",
-                         value: store.snap.gpu.allocMemB.map(formatBytes) ?? "-",
+                         value: store.snap.gpu.allocMemB.map(Fmt.bytes) ?? Fmt.none,
                          color: TUI.dim)
                 if let cores = store.snap.gpu.coreCount {
                     StatCell(label: "GPU CORES", value: "\(cores)", color: TUI.dim)
@@ -189,7 +190,7 @@ struct GPUSection: View {
                 .font(TUI.mono(9)).foregroundStyle(TUI.dim)
                 .frame(width: 58, alignment: .leading)
             HBar(fraction: value ?? 0, color: TUI.gpu, height: 7)
-            Text(value.map { String(format: "%3.0f%%", $0 * 100) } ?? "  -")
+            Text(value.map(Fmt.percentPadded) ?? "  -")
                 .font(TUI.mono(9)).foregroundStyle(TUI.fg)
                 .frame(width: 30, alignment: .trailing)
         }
@@ -207,11 +208,11 @@ struct MemorySection: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 StatCell(label: "UNIFIED MEMORY (CPU+GPU SHARED)",
-                         value: "\(formatBytes(m.usedB)) / \(formatBytes(m.totalB))",
+                         value: "\(Fmt.bytes(m.usedB)) / \(Fmt.bytes(m.totalB))",
                          color: TUI.mem)
                 Spacer()
                 if m.swapUsedB > 0 {
-                    StatCell(label: "SWAP", value: formatBytes(m.swapUsedB), color: TUI.amber)
+                    StatCell(label: "SWAP", value: Fmt.bytes(m.swapUsedB), color: TUI.amber)
                 }
                 StatCell(label: "PRESSURE",
                          value: pressureText,
@@ -231,9 +232,9 @@ struct MemorySection: View {
             }
             .frame(height: 9)
             HStack(spacing: 14) {
-                legend("APP", formatBytes(m.appB), TUI.mem)
-                legend("WIRED", formatBytes(m.wiredB), TUI.amber)
-                legend("COMPRESSED", formatBytes(m.compressedB), TUI.gpu)
+                legend("APP", Fmt.bytes(m.appB), TUI.mem)
+                legend("WIRED", Fmt.bytes(m.wiredB), TUI.amber)
+                legend("COMPRESSED", Fmt.bytes(m.compressedB), TUI.gpu)
             }
         }
     }
@@ -270,13 +271,13 @@ struct PowerRow: View {
     var body: some View {
         HStack(spacing: 18) {
             StatCell(label: "CPU PWR",
-                     value: store.snap.pm?.cpuPowerW.map { String(format: "%.1fW", $0) } ?? "-")
+                     value: Fmt.opt(store.snap.pm?.cpuPowerW, Fmt.watts))
             StatCell(label: "GPU PWR",
-                     value: store.snap.pm?.gpuPowerW.map { String(format: "%.1fW", $0) } ?? "-")
+                     value: Fmt.opt(store.snap.pm?.gpuPowerW, Fmt.watts))
             StatCell(label: "ANE PWR",
-                     value: store.snap.pm?.anePowerW.map { String(format: "%.1fW", $0) } ?? "-")
+                     value: Fmt.opt(store.snap.pm?.anePowerW, Fmt.watts))
             StatCell(label: "PACKAGE",
-                     value: store.snap.pm?.combinedPowerW.map { String(format: "%.1fW", $0) } ?? "-",
+                     value: Fmt.opt(store.snap.pm?.socPowerW, Fmt.watts),
                      color: TUI.amber)
             Spacer()
             Sparkline(values: store.history.power, maxValue: nil, color: TUI.amber)

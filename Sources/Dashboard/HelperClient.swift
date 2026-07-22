@@ -4,7 +4,9 @@ import Shared
 
 /// XPC client for the root helper. If the helper isn't installed, every
 /// request cleanly reports failure and the app degrades to dashboard-only.
-final class HelperClient {
+public final class HelperClient {
+    public init() {}
+
     private let queue = DispatchQueue(label: "tempcontrol.helperclient")
     private var conn: xpc_connection_t?
 
@@ -49,39 +51,39 @@ final class HelperClient {
 
     // MARK: typed API (completions run on an arbitrary queue)
 
-    func fetchSample(_ completion: @escaping (HelperSample?) -> Void) {
+    public func fetchSample(_ completion: @escaping (HelperSample?) -> Void) {
         request("sample") { completion(self.decodeJSON($0, HelperSample.self)) }
     }
 
-    func heartbeat(_ completion: @escaping (ControlStatus?) -> Void) {
+    public func heartbeat(_ completion: @escaping (ControlStatus?) -> Void) {
         request("heartbeat") { completion(self.decodeJSON($0, ControlStatus.self)) }
     }
 
-    func setControl(enabled: Bool, target: Double, _ completion: @escaping (ControlStatus?) -> Void) {
+    public func setControl(enabled: Bool, target: Double, _ completion: @escaping (ControlStatus?) -> Void) {
         request("setControl", bools: ["enabled": enabled], doubles: ["target": target]) {
             completion(self.decodeJSON($0, ControlStatus.self))
         }
     }
 
-    func setLowPower(_ on: Bool, _ completion: @escaping (Bool) -> Void) {
+    public func setLowPower(_ on: Bool, _ completion: @escaping (Bool) -> Void) {
         request("setLowPower", bools: ["on": on]) { reply in
             completion(reply.map { xpc_dictionary_get_bool($0, "ok") } ?? false)
         }
     }
 
-    func setBatterySettings(_ s: BatterySettings, _ completion: @escaping (BatteryControlState?) -> Void) {
+    public func setBatterySettings(_ s: BatterySettings, _ completion: @escaping (BatteryControlState?) -> Void) {
         request("setBattery", json: try? JSONEncoder().encode(s)) {
             completion(self.decodeJSON($0, BatteryControlState.self))
         }
     }
 
-    func setTopUp(_ on: Bool, _ completion: @escaping (BatteryControlState?) -> Void) {
+    public func setTopUp(_ on: Bool, _ completion: @escaping (BatteryControlState?) -> Void) {
         request("topUp", bools: ["on": on]) {
             completion(self.decodeJSON($0, BatteryControlState.self))
         }
     }
 
-    func setCalibration(_ on: Bool, _ completion: @escaping (BatteryControlState?) -> Void) {
+    public func setCalibration(_ on: Bool, _ completion: @escaping (BatteryControlState?) -> Void) {
         request("calibrate", bools: ["on": on]) {
             completion(self.decodeJSON($0, BatteryControlState.self))
         }
