@@ -16,6 +16,7 @@ Owner: Samuel (@ddsamu3l). These are standing requirements from the project owne
 - Fans may only ever be driven **faster** than they already were when boost engaged, never slower than that baseline.
 - Helper reverts fans to macOS automatic control: on app quit (heartbeat timeout), on helper exit/crash-restart, on control disable, and at helper startup.
 - Target temp range clamped to 50–95 °C, ±2 °C deadband.
+- Control law is **PI, not a curve** (July 21): BoostCurve = P kick for spikes; integrator learns and HOLDS the steady fan speed that zeroes the error (user-identified: curve-only control anchors above target or limit-cycles). Bumpless takeover seeds I from actual RPM at engage. Do not regress to curve-only.
 
 ## Battery rules (AlDente-replacement feature, added July 2026)
 - Battery settings deliberately **persist** across app quit and reboot (that's the feature) — the ONE exception to "revert on exit".

@@ -70,6 +70,10 @@ public struct ControlStatus: Codable {
     public var hottestTemp: Double?
     public var fanCount: Int = 0
     public var lowPowerMode: Bool?
+    /// Current controller output, 0...1 of the fan range (engaged only).
+    public var fanLevel: Double?
+    /// Fans pinned at 100% but still over target — target may be unreachable.
+    public var atMax = false
     public init() {}
 }
 

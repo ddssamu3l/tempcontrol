@@ -100,7 +100,7 @@ struct PowerFlowBox: View {
     @EnvironmentObject var store: MetricsStore
 
     var body: some View {
-        BoxSection(title: "POWER FLOW", accent: TUI.amber) {
+        BoxSection(title: "POWER FLOW", accent: TUI.mem) {
             let b = store.snap.battery
             let adapterIn = store.snap.adapterPowerW
             let system = store.snap.systemPowerW
@@ -176,7 +176,7 @@ struct ChargeControlBox: View {
     @EnvironmentObject var store: MetricsStore
 
     var body: some View {
-        BoxSection(title: "CHARGE CONTROL", accent: TUI.amber) {
+        BoxSection(title: "CHARGE CONTROL", accent: TUI.mem) {
             if !store.snap.helperAvailable {
                 Text("NEEDS THE ROOT HELPER — RUN ./scripts/install.sh")
                     .font(TUI.mono(10)).foregroundStyle(TUI.red)

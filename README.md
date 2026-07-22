@@ -24,9 +24,12 @@ macOS keeps Apple Silicon quiet by letting it run hot. If you regularly push you
 ## How the control works
 
 - You set a **target temp** (50–95 °C) on the dial. The controller regulates against the **hottest sensor on the die**.
-- Inside **±2 °C** of the target: nothing to do, you're in the band.
-- Above **target +2 °C**: fan boost engages. Fan speed follows an **exponential curve** — barely audible 3° over, everything the fans have 12° over.
-- Below **target −2 °C**: fans are handed back to macOS automatic control.
+- It's a **PI controller**, not a fan curve. Curves need a permanent error to hold any fan speed, so the chip either anchors above your target or oscillates across it. Instead:
+  - **Kick (P):** spikes above the target get an instant exponential response — barely audible 3° over, everything the fans have 12° over.
+  - **Hold (I):** an integrator learns the steady fan speed that keeps the error at zero, so under constant load the fans settle at **one speed** with the chip sitting **at** your target.
+- Fans rise fast but only glide down (~1%/s), with sub-audible adjustments suppressed — no pitch-wandering.
+- When the chip stays comfortably below target with the boost fully unwound, fans are handed back to macOS automatic control.
+- If fans hit 100% and the chip is still over target, the UI says so plainly — some workloads aren't holdable at low targets.
 
 Safety is non-negotiable and baked in:
 

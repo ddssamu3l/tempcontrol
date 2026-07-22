@@ -147,9 +147,16 @@ struct TempControlBox: View {
                         StatCell(label: "FAN CMD",
                                  value: control?.commandedRPM.map { String(format: "%.0f RPM", $0) } ?? "-",
                                  color: TUI.fan)
+                        StatCell(label: "FAN LEVEL",
+                                 value: control?.fanLevel.map { String(format: "%.0f%%", $0 * 100) } ?? "-",
+                                 color: TUI.fan)
+                    }
+                    if control?.atMax == true {
+                        Text("FANS AT 100% AND STILL OVER TARGET — THIS WORKLOAD MAY\nNOT BE HOLDABLE AT \(Int(store.desiredTarget))°C. RAISE THE TARGET OR REDUCE LOAD.")
+                            .font(TUI.mono(8, .bold)).foregroundStyle(TUI.red)
                     }
                     Text(store.desiredEnabled
-                         ? "HOLDING THE CHIP AT \(Int(store.desiredTarget))°C ±\(Int(TC.deadband))°.\nFANS KICK UP FAST, THEN EASE DOWN SLOWLY."
+                         ? "HOLDING THE CHIP AT \(Int(store.desiredTarget))°C: SPIKES GET AN INSTANT\nKICK, THEN THE CONTROLLER LEARNS THE STEADY FAN SPEED THAT\nHOLDS YOUR TARGET AND SITS THERE."
                          : "MACOS IS CONTROLLING THE FANS AS USUAL —\nTEMPCONTROL IS ONLY MONITORING.")
                         .font(TUI.mono(8))
                         .foregroundStyle(store.desiredEnabled ? TUI.amber : TUI.dim)

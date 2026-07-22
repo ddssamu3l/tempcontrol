@@ -1,21 +1,24 @@
 import Foundation
 import Shared
 
-/// The temperature regulator. Runs inside the root helper every 2 seconds.
+/// The temperature regulator: a PI controller on 2-second ticks.
 ///
-/// Control law (per spec):
-///   error = hottest die sensor - target
-///   - error > +2°C  -> engage boost; fan speed ramps EXPONENTIALLY with error
-///                      (BoostCurve), hitting 100% at target+2+12°C.
-///   - within ±2°C   -> stay engaged, boost eases off along the same curve.
-///   - error < -2°C  -> release: fans go back to full macOS automatic control.
+/// Why PI and not just a fan curve: a curve maps "degrees over target" to a
+/// fan speed, so holding any speed requires a permanent error — the chip
+/// anchors ABOVE your target, or bounces across it as fans kick and decay.
+/// The integral term fixes that: it accumulates error over time and settles
+/// on whatever steady fan speed makes the error zero, then holds it.
+///
+///   P (kick):  BoostCurve.fraction(error) — the exponential response to
+///              being over target. Instant, handles spikes, zero at target.
+///   I (hold):  slowly learns the sustained fan level the workload needs.
+///              At steady state P≈0 and I carries the whole output — fans
+///              sit at ONE speed while the chip sits AT the target.
 ///
 /// Safety invariants (see PROJECT_NOTES.md):
-///   - Never command below the RPM the fans were already doing when boost
-///     engaged (the "baseline") — we only ever speed fans up.
-///   - Fanless Macs (fanCount == 0): controller refuses to enable at all.
-///   - Anything that stops the loop (disable, app heartbeat lost, helper
-///     exit) releases the fans to automatic.
+///   - Never command below the RPM the fans were doing when boost engaged.
+///   - Fanless Macs: controller refuses to enable.
+///   - Disable, app-gone watchdog, and helper exit all release to macOS auto.
 final class FanController {
     private let smc: SMC?
     private let sensors: HIDSensors
@@ -25,22 +28,25 @@ final class FanController {
     private(set) var engaged = false
     private(set) var commandedRPM: Double?
     private(set) var lastHottest: Double?
+    private(set) var output: Double = 0        // 0...1 of fan span
+    private var integrator: Double = 0
     private var baselineRPM: [Int: Double] = [:]
-
-    // Smoothing state: fans kick up instantly on spikes, hold, then glide
-    // down slowly instead of chasing every temperature wiggle.
-    private var emaError: Double?
-    private var boostFraction: Double = 0
-    private var lastKickUp = Date.distantPast
     private var belowBandSince: Date?
     private var lastWrittenRPM: [Int: Double] = [:]
 
-    /// Fastest allowed decay: fraction of the fan span per 2s tick (~1%/s).
-    private let decayPerTick = 0.02
-    /// After any kick-up, don't start decaying for this long.
-    private let holdAfterKickUp: TimeInterval = 10
-    /// Stay below target−2°C this long before handing fans back to macOS
-    /// (prevents engage/release flapping right at the band edge).
+    private let dt: Double = 2                 // tick period, seconds
+    /// Integral gains (fraction per °C per second). Unwinding (cooling) runs
+    /// faster than winding so we don't overstay after load drops.
+    private let kiUp = 0.0015
+    private let kiDown = 0.003
+    /// Slew limits per tick: fans may rise quickly but only glide down
+    /// (~1% of range per second) — this is what keeps the pitch calm.
+    private let maxUpStep = 0.25
+    private let maxDownStep = 0.02
+    /// Severe overheat bypasses the up-slew limit entirely.
+    private let panicError: Double = 8
+    /// Release to macOS only after the output has fully unwound AND the chip
+    /// has stayed below target−2°C this long (no flapping at the band edge).
     private let releaseAfter: TimeInterval = 30
     /// Ignore commanded-RPM changes smaller than this (write suppression).
     private let minRPMChange: Double = 60
@@ -81,21 +87,36 @@ final class FanController {
         }
 
         let error = hottest - targetTemp
-        let ema = emaError.map { $0 * 0.7 + error * 0.3 } ?? error
-        emaError = ema
 
         if !engaged {
             guard error > TC.deadband else { return }
-            // Record what the fans were already doing under automatic control:
-            // this is the floor we never command below.
-            baselineRPM = Dictionary(uniqueKeysWithValues: smc.allFans().map { ($0.id, $0.actualRPM) })
+            let fans = smc.allFans()
+            baselineRPM = Dictionary(uniqueKeysWithValues: fans.map { ($0.id, $0.actualRPM) })
+            // Bumpless takeover: seed the integrator so our first command
+            // matches what the fans are already doing under macOS control.
+            integrator = fans.map { fan in
+                let span = max(1.0, fan.maxRPM - fan.minRPM)
+                return max(0, (fan.actualRPM - fan.minRPM) / span)
+            }.max() ?? 0
             engaged = true
-            boostFraction = 0
+            output = integrator
         }
 
-        // Cooled to 2°C below target — but only release after staying there
-        // for a while, so a brief dip doesn't bounce control back and forth.
-        if error < -TC.deadband {
+        // -- integral: learn the steady level that zeroes the error ----------
+        integrator += (error >= 0 ? kiUp : kiDown) * error * dt
+        integrator = min(1, max(0, integrator))
+
+        // -- proportional kick + slew-limited output -------------------------
+        let kick = BoostCurve.fraction(error: error)
+        let targetOut = min(1, max(0, kick + integrator))
+        if targetOut > output {
+            output = error >= panicError ? targetOut : min(targetOut, output + maxUpStep)
+        } else {
+            output = max(targetOut, output - maxDownStep)
+        }
+
+        // -- release: chip comfortably below target with no help needed ------
+        if error < -TC.deadband && output <= 0.05 {
             if belowBandSince == nil { belowBandSince = Date() }
             if Date().timeIntervalSince(belowBandSince!) >= releaseAfter {
                 release()
@@ -105,22 +126,11 @@ final class FanController {
             belowBandSince = nil
         }
 
-        // Spikes act on the instantaneous error (fast attack); the way down
-        // follows the smoothed error, held then rate-limited (slow decay).
-        let targetFraction = BoostCurve.fraction(error: max(error, ema))
-        if targetFraction > boostFraction {
-            boostFraction = targetFraction
-            lastKickUp = Date()
-        } else if Date().timeIntervalSince(lastKickUp) >= holdAfterKickUp {
-            boostFraction = max(targetFraction, boostFraction - decayPerTick)
-        }
-
         var commanded: Double = 0
         for fan in smc.allFans() {
             let span = max(0, fan.maxRPM - fan.minRPM)
-            let curveRPM = fan.minRPM + boostFraction * span
-            let rpm = min(fan.maxRPM, max(baselineRPM[fan.id] ?? fan.minRPM, curveRPM))
-            // Skip sub-audible adjustments so the pitch isn't constantly wandering.
+            let rpm = min(fan.maxRPM,
+                          max(baselineRPM[fan.id] ?? fan.minRPM, fan.minRPM + output * span))
             if abs((lastWrittenRPM[fan.id] ?? -1000) - rpm) >= minRPMChange {
                 smc.setFanMode(fan.id, forced: true)
                 smc.setFanTarget(fan.id, rpm: rpm)
@@ -135,8 +145,8 @@ final class FanController {
         engaged = false
         commandedRPM = nil
         baselineRPM = [:]
-        emaError = nil
-        boostFraction = 0
+        integrator = 0
+        output = 0
         belowBandSince = nil
         lastWrittenRPM = [:]
         guard let smc else { return }
@@ -153,6 +163,8 @@ final class FanController {
         st.commandedRPM = commandedRPM
         st.hottestTemp = lastHottest
         st.fanCount = fanCount
+        st.fanLevel = engaged ? output : nil
+        st.atMax = engaged && output >= 0.99 && (lastHottest ?? 0) - targetTemp > 1
         return st
     }
 }
