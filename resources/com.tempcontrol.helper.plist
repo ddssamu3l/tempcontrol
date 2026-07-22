@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.tempcontrol.helper</string>
+	<key>Program</key>
+	<string>/Library/PrivilegedHelperTools/com.tempcontrol.helper</string>
+	<key>MachServices</key>
+	<dict>
+		<key>com.tempcontrol.helper</key>
+		<true/>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- If the helper ever crashes mid-boost, launchd restarts it and the
+	     helper's first act is to hand the fans back to macOS. -->
+	<key>KeepAlive</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>
