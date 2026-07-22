@@ -161,9 +161,11 @@ struct TempControlBox: View {
                         .font(TUI.mono(8))
                         .foregroundStyle(store.desiredEnabled ? TUI.amber : TUI.dim)
                     if store.desiredEnabled {
-                        BoostCurveView(target: store.desiredTarget, hottest: store.snap.hottest)
-                            .frame(height: 44)
-                        Text("FAN RESPONSE VS °C OVER TARGET (● = NOW)")
+                        ControlActivityView(temps: store.history.temp,
+                                            fanLevels: store.history.fanLevel,
+                                            target: store.desiredTarget)
+                            .frame(height: 48)
+                        Text("─ CHIP TEMP   ┄ TARGET   ▒ FAN LEVEL\nFANS FLATTEN OUT AS TEMP LOCKS ONTO THE TARGET")
                             .font(TUI.mono(8)).foregroundStyle(TUI.faint)
                     }
                 }
@@ -280,36 +282,56 @@ struct TempDial: View {
     }
 }
 
-/// Live plot of the exact boost curve the helper runs, with a marker at the
-/// current temperature error.
-struct BoostCurveView: View {
+/// Live controller activity: chip temp (line, own scale, dashed target) over
+/// fan level (filled area, 0–100%) on one timeline — the cause-and-effect
+/// view of the PI loop doing its job.
+struct ControlActivityView: View {
+    let temps: [Double]
+    let fanLevels: [Double]
     let target: Double
-    let hottest: Double?
 
     var body: some View {
         Canvas { ctx, size in
-            let maxErr = BoostCurve.fullBoostError + TC.deadband
+            let stepX = size.width / CGFloat(History.capacity - 1)
 
-            func point(_ error: Double) -> CGPoint {
-                let x = CGFloat((error + TC.deadband) / (maxErr + TC.deadband)) * size.width
-                let y = size.height - CGFloat(BoostCurve.fraction(error: error)) * (size.height - 3) - 1.5
-                return CGPoint(x: x, y: y)
+            // Fan level: filled area on a fixed 0...1 scale.
+            if fanLevels.count > 1 {
+                let startX = size.width - CGFloat(fanLevels.count - 1) * stepX
+                var fill = Path()
+                fill.move(to: CGPoint(x: startX, y: size.height))
+                for (i, v) in fanLevels.enumerated() {
+                    let x = startX + CGFloat(i) * stepX
+                    let y = size.height - CGFloat(min(max(v, 0), 1)) * (size.height - 2) - 1
+                    fill.addLine(to: CGPoint(x: x, y: y))
+                }
+                fill.addLine(to: CGPoint(x: size.width, y: size.height))
+                fill.closeSubpath()
+                ctx.fill(fill, with: .color(TUI.fan.opacity(0.28)))
             }
 
-            var curve = Path()
-            var e = -TC.deadband
-            curve.move(to: point(e))
-            while e <= maxErr {
-                curve.addLine(to: point(e))
-                e += 0.25
-            }
-            ctx.stroke(curve, with: .color(TUI.amber), lineWidth: 1.2)
+            // Temp: line on its own scale, window sized to include the target.
+            let visible = temps.filter { $0 > 0 }
+            if visible.count > 1 {
+                let lo = min(visible.min() ?? target, target) - 3
+                let hi = max(visible.max() ?? target, target) + 3
+                let span = max(hi - lo, 1)
+                func y(_ t: Double) -> CGFloat {
+                    size.height - CGFloat((t - lo) / span) * (size.height - 4) - 2
+                }
+                let startX = size.width - CGFloat(temps.count - 1) * stepX
+                var line = Path()
+                var started = false
+                for (i, t) in temps.enumerated() where t > 0 {
+                    let p = CGPoint(x: startX + CGFloat(i) * stepX, y: y(t))
+                    if started { line.addLine(to: p) } else { line.move(to: p); started = true }
+                }
+                ctx.stroke(line, with: .color(TUI.amber), lineWidth: 1.2)
 
-            if let hottest {
-                let err = min(max(hottest - target, -TC.deadband), maxErr)
-                let p = point(err)
-                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)),
-                         with: .color(TUI.fg))
+                var ref = Path()
+                ref.move(to: CGPoint(x: 0, y: y(target)))
+                ref.addLine(to: CGPoint(x: size.width, y: y(target)))
+                ctx.stroke(ref, with: .color(TUI.fg.opacity(0.7)),
+                           style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
             }
         }
         .background(Color(white: 0.04))
