@@ -15,43 +15,14 @@ struct FansView: View {
                     ForEach(store.snap.fans) { fan in
                         FanRow(fan: fan, boosting: store.snap.control?.engaged == true)
                     }
-                    HStack {
-                        Spacer()
-                        Sparkline(values: store.history.fanRPM,
-                                  maxValue: store.snap.fans.map(\.maxRPM).max(),
-                                  color: TUI.fan)
-                            .frame(width: 240, height: 22)
-                    }
-                    Rectangle().fill(TUI.grid).frame(height: 1)
-                    batteryTempSection
+                    Sparkline(values: store.history.fanRPM,
+                              maxValue: store.snap.fans.map(\.maxRPM).max(),
+                              color: TUI.fan)
+                        .frame(height: 26)
+                        .frame(maxWidth: .infinity)
                 }
             }
         }
-    }
-
-    /// Battery temp lives with the fans: it's the other thing cooling affects.
-    private var batteryTempSection: some View {
-        HStack(spacing: 16) {
-            Text("BATTERY")
-                .font(TUI.mono(9, .bold)).foregroundStyle(TUI.mem)
-            StatCell(label: "TEMP",
-                     value: store.snap.battery?.temperatureC.map { String(format: "%.1f°C", $0) } ?? "-",
-                     color: batteryTempColor)
-            StatCell(label: "SAFE RANGE", value: "<35°C IDEAL", color: TUI.dim)
-            if store.batterySettings.enabled && store.batterySettings.heatProtect {
-                StatCell(label: "HEAT PROTECT",
-                         value: "<\(Int(store.batterySettings.heatLimitC))°C",
-                         color: TUI.mem)
-            }
-            Spacer()
-        }
-    }
-
-    private var batteryTempColor: Color {
-        guard let t = store.snap.battery?.temperatureC else { return TUI.dim }
-        if t > 40 { return TUI.red }
-        if t > 35 { return TUI.amber }
-        return TUI.mem
     }
 }
 

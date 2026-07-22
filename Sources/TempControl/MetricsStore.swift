@@ -38,6 +38,7 @@ struct History {
     var batteryW: [Double] = []
     /// Controller output 0...1 (0 when not engaged).
     var fanLevel: [Double] = []
+    var batteryTemp: [Double] = []
 
     static let capacity = 120
     mutating func push(_ keyPath: WritableKeyPath<History, [Double]>, _ v: Double) {
@@ -160,6 +161,7 @@ final class MetricsStore: ObservableObject {
             self.history.push(\.batteryPct, s.battery?.hwPercent ?? 0)
             self.history.push(\.batteryW, s.battery?.batteryPowerW ?? 0)
             self.history.push(\.fanLevel, s.control?.fanLevel ?? 0)
+            self.history.push(\.batteryTemp, s.battery?.temperatureC ?? 0)
         }
     }
     private var snapHelperWasAvailable = false

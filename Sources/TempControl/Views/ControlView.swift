@@ -12,11 +12,49 @@ struct TempPanel: View {
         VStack(spacing: 8) {
             ChipTempBox()
             TempControlBox()
-            BoxSection(title: "ALL TEMP SENSORS", accent: TUI.amber) {
-                SensorStrips(groups: TempSensor.Group.allCases, label: nil)
-            }
             FansView()
+            BatteryTempBox()
         }
+    }
+}
+
+/// Battery temperature in its own section: the pack heats from charging and
+/// chassis heat, ages faster hot, and is the other thing cooling protects.
+struct BatteryTempBox: View {
+    @EnvironmentObject var store: MetricsStore
+
+    var body: some View {
+        BoxSection(title: "BATTERY TEMP", accent: TUI.mem) {
+            let temp = store.snap.battery?.temperatureC
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 18) {
+                    StatCell(label: "NOW",
+                             value: temp.map { String(format: "%.1f°C", $0) } ?? "-",
+                             color: batteryTempColor(temp))
+                    StatCell(label: "SAFE RANGE", value: "<35°C IDEAL", color: TUI.dim)
+                    if store.batterySettings.enabled && store.batterySettings.heatProtect {
+                        StatCell(label: "HEAT PROTECT",
+                                 value: "PAUSES CHARGE >\(Int(store.batterySettings.heatLimitC))°C",
+                                 color: TUI.mem)
+                    }
+                    Spacer()
+                }
+                Sparkline(values: store.history.batteryTemp,
+                          maxValue: max(45, (store.history.batteryTemp.max() ?? 0) + 3),
+                          color: TUI.mem,
+                          refValue: store.batterySettings.enabled && store.batterySettings.heatProtect
+                              ? store.batterySettings.heatLimitC : nil,
+                          refColor: TUI.red)
+                    .frame(height: 28)
+            }
+        }
+    }
+
+    private func batteryTempColor(_ t: Double?) -> Color {
+        guard let t else { return TUI.dim }
+        if t > 40 { return TUI.red }
+        if t > 35 { return TUI.amber }
+        return TUI.mem
     }
 }
 
