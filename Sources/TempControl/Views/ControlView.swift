@@ -189,26 +189,43 @@ struct TempControlBox: View {
                                  value: control?.fanLevel.map { String(format: "%.0f%%", $0 * 100) } ?? "-",
                                  color: TUI.fan)
                     }
+                    HStack(spacing: 16) {
+                        StatCell(label: "PEAK (2 MIN)",
+                                 value: peakTemp.map { String(format: "%.1f°C", $0) } ?? "-",
+                                 color: peakTemp.map(TUI.tempColor) ?? TUI.dim)
+                        StatCell(label: "FAN AVG",
+                                 value: avgFanRPM.map { String(format: "%.0f RPM", $0) } ?? "-",
+                                 color: TUI.fan)
+                        StatCell(label: "SYS POWER",
+                                 value: store.snap.systemPowerW.map { String(format: "%.1fW", $0) } ?? "-",
+                                 color: TUI.amber)
+                    }
                     if control?.atMax == true {
                         Text("FANS AT 100% AND STILL OVER TARGET — THIS WORKLOAD MAY\nNOT BE HOLDABLE AT \(Int(store.desiredTarget))°C. RAISE THE TARGET OR REDUCE LOAD.")
                             .font(TUI.mono(8, .bold)).foregroundStyle(TUI.red)
                     }
-                    Text(store.desiredEnabled
-                         ? "HOLDING THE CHIP AT \(Int(store.desiredTarget))°C: SPIKES GET AN INSTANT\nKICK, THEN THE CONTROLLER LEARNS THE STEADY FAN SPEED THAT\nHOLDS YOUR TARGET AND SITS THERE."
-                         : "MACOS IS CONTROLLING THE FANS AS USUAL —\nTEMPCONTROL IS ONLY MONITORING.")
-                        .font(TUI.mono(8))
-                        .foregroundStyle(store.desiredEnabled ? TUI.amber : TUI.dim)
                     if store.desiredEnabled {
                         ControlActivityView(temps: store.history.temp,
                                             fanLevels: store.history.fanLevel,
                                             target: store.desiredTarget)
-                            .frame(height: 48)
-                        Text("─ CHIP TEMP   ┄ TARGET   ▒ FAN LEVEL\nFANS FLATTEN OUT AS TEMP LOCKS ONTO THE TARGET")
+                            .frame(height: 74)
+                        Text("─ CHIP TEMP   ┄ TARGET   ▒ FAN LEVEL")
                             .font(TUI.mono(8)).foregroundStyle(TUI.faint)
                     }
                 }
             }
         }
+    }
+
+    private var peakTemp: Double? {
+        let peak = store.history.temp.max() ?? 0
+        return peak > 0 ? peak : nil
+    }
+
+    private var avgFanRPM: Double? {
+        let fans = store.snap.fans
+        guard !fans.isEmpty else { return nil }
+        return fans.map(\.actualRPM).reduce(0, +) / Double(fans.count)
     }
 
     private var modeText: String {
