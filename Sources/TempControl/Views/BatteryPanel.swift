@@ -191,6 +191,27 @@ struct ChargeControlBox: View {
 
     @ViewBuilder private var controls: some View {
         let control = store.snap.batteryControl
+        let mgmtOn = store.batterySettings.enabled
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                TUIButton(label: mgmtOn ? "[ BATTERY MANAGEMENT: ON ]" : "[ BATTERY MANAGEMENT: OFF ]",
+                          active: mgmtOn,
+                          activeColor: TUI.mem) {
+                    store.batterySettings.enabled.toggle()
+                    store.pushBatterySettings()
+                }
+                Spacer()
+            }
+            if !mgmtOn {
+                Text("EVERYTHING OFF — MACOS MANAGES CHARGING. ALL CONTROL KEYS RESET TO DEFAULTS.")
+                    .font(TUI.mono(9)).foregroundStyle(TUI.dim)
+            } else {
+                enabledControls(control)
+            }
+        }
+    }
+
+    @ViewBuilder private func enabledControls(_ control: BatteryControlState?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("CHARGE LIMIT").font(TUI.mono(9)).foregroundStyle(TUI.dim)
@@ -226,6 +247,9 @@ struct ChargeControlBox: View {
                 Text("CALIBRATION \(c.calibration.label)")
                     .font(TUI.mono(9, .bold)).foregroundStyle(TUI.amber)
             }
+
+            Text("⚠ DISCHARGING FLIPS THE MAC TO BATTERY POWER — IF YOUR DISPLAY/HUB\nSHARES THAT POWER PATH, SCREENS CAN BLANK FOR A FEW SECONDS.\nSWITCHES ARE RATE-LIMITED TO ONCE PER MINUTE.")
+                .font(TUI.mono(8)).foregroundStyle(TUI.amber.opacity(0.8))
 
             Text(statusLine)
                 .font(TUI.mono(8)).foregroundStyle(TUI.faint)

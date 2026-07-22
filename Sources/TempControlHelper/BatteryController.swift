@@ -32,6 +32,11 @@ final class BatteryController {
     /// One-shot: user just lowered the limit below the current charge —
     /// drain down to the new limit even if autoDischarge is off.
     private var drainToLimit = false
+    /// Flipping the adapter off/on renegotiates power delivery, which can
+    /// blank displays that share the Mac's power path. Turning discharge ON
+    /// is therefore rate-limited; turning it OFF is always immediate.
+    private var lastDischargeFlip = Date.distantPast
+    private let dischargeFlipCooldown: TimeInterval = 60
     private var calibration: CalibrationPhase = .idle
     private var holdUntil: Date?
     private var lastLED: UInt8?
@@ -76,6 +81,15 @@ final class BatteryController {
         settings.limitPct = min(100, max(50, settings.limitPct))
         settings.sailBelowPct = min(20, max(2, settings.sailBelowPct))
         settings.heatLimitC = min(45, max(30, settings.heatLimitC))
+        // Master switch off: cancel every mode and hand charging back to macOS.
+        if !settings.enabled {
+            topUp = false
+            calibration = .idle
+            drainToLimit = false
+            reset()
+            saveSettings()
+            return
+        }
         // Setting the limit below the current charge means "take me there":
         // drain down to it once, no separate toggle needed.
         if settings.limitPct < 100,
@@ -103,7 +117,13 @@ final class BatteryController {
     // MARK: control loop (called every ~10s)
 
     func tick() {
-        guard supported, let smc, let info = reader.read(), let pct = info.hwPercent else { return }
+        guard supported, let smc else { return }
+        // Disabled: make sure nothing is left engaged, then stay hands-off.
+        guard settings.enabled else {
+            if inhibited || discharging || lastLED != nil { reset() }
+            return
+        }
+        guard let info = reader.read(), let pct = info.hwPercent else { return }
 
         // -- figure out the current charge target ----------------------------
         var target = Double(settings.limitPct)
@@ -151,8 +171,14 @@ final class BatteryController {
 
         // -- write only on change --------------------------------------------
         if wantDischarge != discharging, let dischargeKey {
-            smc.writeUInt8(dischargeKey, wantDischarge ? 1 : 0)
-            discharging = wantDischarge
+            // ON is rate-limited (display-blank protection); OFF is immediate.
+            let allowed = !wantDischarge
+                || Date().timeIntervalSince(lastDischargeFlip) >= dischargeFlipCooldown
+            if allowed {
+                smc.writeUInt8(dischargeKey, wantDischarge ? 1 : 0)
+                discharging = wantDischarge
+                lastDischargeFlip = Date()
+            }
         }
         if wantInhibit != inhibited {
             for w in inhibitWrites { smc.writeUInt8(w.key, wantInhibit ? w.inhibit : 0) }
@@ -205,6 +231,7 @@ final class BatteryController {
         if ledSupported { smc.writeUInt8("ACLC", 0) }
         inhibited = false
         discharging = false
+        lastLED = nil
     }
 
     /// Standalone reset for `tempcontrol-helper --reset-battery` (run as root

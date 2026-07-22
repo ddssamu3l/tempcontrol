@@ -85,6 +85,9 @@ public final class BatteryReader {
 // MARK: - Battery management settings (persisted by the helper)
 
 public struct BatterySettings: Codable, Equatable {
+    /// Master switch. Off = TempControl touches nothing battery-related and
+    /// all control keys are reset to macOS defaults.
+    public var enabled = true
     /// 100 = limiting off. Hardware-percentage based.
     public var limitPct: Int = 100
     /// Actively drain to the limit when above it (AlDente Pro "Discharge").
@@ -100,6 +103,20 @@ public struct BatterySettings: Codable, Equatable {
     /// green once held at the limit (AlDente Pro "Control MagSafe LED").
     public var magsafeLED = false
     public init() {}
+
+    // Tolerant decoding: settings JSON persists on disk across app updates,
+    // so newly added fields must fall back to defaults instead of failing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        limitPct = try c.decodeIfPresent(Int.self, forKey: .limitPct) ?? 100
+        autoDischarge = try c.decodeIfPresent(Bool.self, forKey: .autoDischarge) ?? false
+        sailing = try c.decodeIfPresent(Bool.self, forKey: .sailing) ?? false
+        sailBelowPct = try c.decodeIfPresent(Int.self, forKey: .sailBelowPct) ?? 5
+        heatProtect = try c.decodeIfPresent(Bool.self, forKey: .heatProtect) ?? false
+        heatLimitC = try c.decodeIfPresent(Double.self, forKey: .heatLimitC) ?? 35
+        magsafeLED = try c.decodeIfPresent(Bool.self, forKey: .magsafeLED) ?? false
+    }
 }
 
 public enum CalibrationPhase: String, Codable {
