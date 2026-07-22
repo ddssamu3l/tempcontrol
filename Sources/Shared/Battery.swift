@@ -134,6 +134,30 @@ public enum CalibrationPhase: String, Codable {
 }
 
 /// What the helper's battery controller is actually doing right now.
+/// Lid state, via IOPMrootDomain.
+///
+/// This matters far more than it looks. A Mac running with the lid shut
+/// ("clamshell") stays awake ONLY while it has AC power — that's a macOS rule,
+/// not a setting. So anything that briefly drops the machine onto battery is a
+/// harmless flicker with the lid open, and an immediate full system sleep with
+/// the lid closed: fans stop mid-load, external displays go black, and it looks
+/// exactly like a crash. See PROJECT_NOTES.md.
+public enum Lid {
+    /// True when shut. nil on desktops, or if the key isn't published.
+    public static func isClosed() -> Bool? {
+        // Match the service rather than hardcoding a registry path — the path
+        // is not stable and resolved to nothing on macOS 26.
+        let entry = IOServiceGetMatchingService(kIOMainPortDefault,
+                                                IOServiceMatching("IOPMrootDomain"))
+        guard entry != 0 else { return nil }
+        defer { IOObjectRelease(entry) }
+        guard let cf = IORegistryEntryCreateCFProperty(
+            entry, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() else { return nil }
+        return (cf as? NSNumber)?.boolValue
+    }
+}
+
 public struct BatteryControlState: Codable {
     public var settings = BatterySettings()
     /// Charge-inhibit SMC keys were found (root). False = this Mac/macOS
@@ -148,6 +172,10 @@ public struct BatteryControlState: Codable {
     /// Which keys were discovered — shown in diagnostics.
     public var inhibitKeys: [String] = []
     public var dischargeKey: String?
+    /// Lid shut right now — charge-control writes are held off (see `Lid`).
+    public var lidClosed = false
+    /// Set when a wanted change was deliberately NOT written, and why.
+    public var heldOffReason: String?
     public init() {}
 
     /// Tolerant decoding — see the note on `ControlStatus.init(from:)`. A
@@ -164,5 +192,7 @@ public struct BatteryControlState: Codable {
         calibration = try c.decodeIfPresent(CalibrationPhase.self, forKey: .calibration) ?? .idle
         inhibitKeys = try c.decodeIfPresent([String].self, forKey: .inhibitKeys) ?? []
         dischargeKey = try c.decodeIfPresent(String.self, forKey: .dischargeKey)
+        lidClosed = try c.decodeIfPresent(Bool.self, forKey: .lidClosed) ?? false
+        heldOffReason = try c.decodeIfPresent(String.self, forKey: .heldOffReason)
     }
 }

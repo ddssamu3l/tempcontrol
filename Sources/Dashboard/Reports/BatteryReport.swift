@@ -144,6 +144,11 @@ public enum BatteryReport: PanelReporting {
             .text("FORCING DISCHARGE", Fmt.yesNo(c.forcingDischarge)),
             .text("INHIBIT KEYS", c.inhibitKeys.isEmpty ? Fmt.none : c.inhibitKeys.joined(separator: "+")),
             .text("DISCHARGE KEY", c.dischargeKey ?? "NOT FOUND"),
+            // Read the lid locally, not from the helper: an older helper simply
+            // omits the field, which would decode to "open" — wrong in the one
+            // direction that matters.
+            .text("LID", (Lid.isClosed() ?? c.lidClosed) ? "CLOSED — CHARGE-CONTROL WRITES HELD" : "OPEN"),
+            .text("HELD OFF", c.heldOffReason ?? "NO"),
         ]
         rows.append(.text("STATUS", statusLine(c)))
         return ReportSection("CHARGE CONTROL", rows,

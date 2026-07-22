@@ -28,6 +28,9 @@ final class BatteryController {
 
     private var inhibited = false
     private var discharging = false
+    /// Lid shut + why a wanted change was withheld — see the guard in tick().
+    private var lidClosed = false
+    private var heldOffReason: String?
     private var topUp = false
     /// One-shot: user just lowered the limit below the current charge —
     /// drain down to the new limit even if autoDischarge is off.
@@ -169,8 +172,27 @@ final class BatteryController {
             wantInhibit = true
         }
 
+        // -- lid guard --------------------------------------------------------
+        // Engaging charge control briefly drops this machine onto battery
+        // power. Lid open, that's an invisible flicker. Lid SHUT, macOS ends
+        // clamshell operation and sleeps the whole Mac instantly — fans stop
+        // mid-load and the displays go black, which reads as a hard crash.
+        // (Confirmed from pmset logs: "Entering Sleep state due to 'Clamshell
+        // Sleep' ... Using Batt" seconds after a limit was applied.)
+        //
+        // So: never ENGAGE while the lid is shut. Disengaging is always
+        // allowed — that's the direction that hands control back to macOS,
+        // and refusing it could strand a charge limit indefinitely.
+        lidClosed = Lid.isClosed() ?? false
+        heldOffReason = nil
+        func mayWrite(engaging: Bool) -> Bool {
+            guard engaging, lidClosed else { return true }
+            heldOffReason = "LID CLOSED — APPLYING THIS WOULD SLEEP YOUR MAC"
+            return false
+        }
+
         // -- write only on change --------------------------------------------
-        if wantDischarge != discharging, let dischargeKey {
+        if wantDischarge != discharging, let dischargeKey, mayWrite(engaging: wantDischarge) {
             // ON is rate-limited (display-blank protection); OFF is immediate.
             let allowed = !wantDischarge
                 || Date().timeIntervalSince(lastDischargeFlip) >= dischargeFlipCooldown
@@ -180,7 +202,7 @@ final class BatteryController {
                 lastDischargeFlip = Date()
             }
         }
-        if wantInhibit != inhibited {
+        if wantInhibit != inhibited, mayWrite(engaging: wantInhibit) {
             for w in inhibitWrites { smc.writeUInt8(w.key, wantInhibit ? w.inhibit : 0) }
             inhibited = wantInhibit
         }
@@ -219,6 +241,8 @@ final class BatteryController {
         s.calibration = calibration
         s.inhibitKeys = inhibitWrites.map(\.key)
         s.dischargeKey = dischargeKey
+        s.lidClosed = Lid.isClosed() ?? false
+        s.heldOffReason = heldOffReason
         return s
     }
 

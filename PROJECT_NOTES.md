@@ -67,7 +67,24 @@ too. Never delete these in favour of the synthesized version.
 - Consequence: `uninstall.sh` MUST run `tempcontrol-helper --reset-battery` before deleting the helper, or a charge limit could outlive the app. Never remove that step.
 - Charge-control SMC keys are discovered at runtime as root (CH0B/CH0C → CHIE → CHTE; discharge CH0I; LED ACLC) — they are invisible to unprivileged reads, so the probe CANNOT verify them; only the running helper can. UI must report per-feature capability honestly.
 - Limit clamped to 50–100%; discharge floor 15% (calibration only).
-- **Discharge (CH0I) flips the adapter off → power-delivery renegotiation can blank displays/hubs sharing the power path** (user hit this July 21 — looked like a crash, wasn't). Mitigations that must stay: turning discharge ON is rate-limited to once/60s (OFF is immediate), and the UI warns about it. Never add logic that toggles CH0I rapidly.
+- **NEVER engage charge control while the lid is shut.** This is the most important rule in the file.
+
+  Applying a charge limit briefly drops the machine onto battery power. Lid open, that's an invisible flicker. Lid **closed**, macOS ends clamshell operation the instant AC goes away — closed-display operation *requires* AC — and sleeps the entire Mac. Fans stop mid-load, external displays go black, and it is indistinguishable from a hard crash.
+
+  Confirmed from `pmset -g log` on July 22 (limit set to 70% at 78% charge):
+  ```
+  00:48:09  Using Batt (78%)                      <- charge control applied
+  00:48:24  Entering Sleep — 'Clamshell Sleep'
+  00:48:28/33/37  DarkWake / Sleep / Wake         <- sleep-wake thrash
+  00:48:42  Using AC (78%)                        <- ~33s total
+  ```
+  No panic report existed, because nothing panicked. The July 21 "blackout" has the same signature (20:39, 79%, `Using Batt`).
+
+  **This supersedes an earlier, wrong diagnosis** that blamed CH0I forced discharge + USB-C PD renegotiation blanking downstream displays. This machine has **no CH0I at all** (`DISCHARGE KEY: NOT FOUND`; only `CHIE` is present), so discharge was never involved and "the displays lost power" was never the mechanism — *the whole Mac slept*.
+
+  The guard in `BatteryController.tick()`: engaging is refused while `Lid.isClosed()`, disengaging is always allowed (never strand a limit). Read lid state via `IOServiceGetMatchingService(..., IOServiceMatching("IOPMrootDomain"))` and `AppleClamshellState` — the registry *path* `IOService:/IOResources/IOPMrootDomain` does not resolve on macOS 26.
+- The app and CLI read lid state **locally**, not from the helper's reported field: an older helper omits it, and tolerant decoding turns that into "open" — wrong in the one direction that can sleep the machine.
+- Discharge (CH0I), where it exists: turning ON is rate-limited to once/60s (OFF is immediate). Never add logic that toggles CH0I rapidly.
 - Master `enabled` switch in BatterySettings: off = cancel all modes + reset every key. Settings JSON decodes with per-field defaults (decodeIfPresent) so on-disk settings survive schema additions.
 
 ## Adding a new panel (the enum → switch → reporter contract)

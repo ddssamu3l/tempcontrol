@@ -249,8 +249,19 @@ struct ChargeControlBox: View {
                     .font(TUI.mono(9, .bold)).foregroundStyle(TUI.amber)
             }
 
-            Text("⚠ DISCHARGING FLIPS THE MAC TO BATTERY POWER — IF YOUR DISPLAY/HUB\nSHARES THAT POWER PATH, SCREENS CAN BLANK FOR A FEW SECONDS.\nSWITCHES ARE RATE-LIMITED TO ONCE PER MINUTE.")
-                .font(TUI.mono(8)).foregroundStyle(TUI.amber.opacity(0.8))
+            if let reason = control?.heldOffReason {
+                Text("⏸ HELD OFF — \(reason)")
+                    .font(TUI.mono(9, .bold)).foregroundStyle(TUI.red)
+            }
+
+            // Lid read locally — see the note in BatteryReport.
+            if Lid.isClosed() ?? (control?.lidClosed == true) {
+                Text("⚠ LID IS CLOSED. Your Mac only stays awake with the lid shut while\nit has AC power, and applying charge control briefly drops it onto\nbattery — which would sleep the machine instantly. Changes are held\nuntil you open the lid.")
+                    .font(TUI.mono(8)).foregroundStyle(TUI.amber)
+            } else {
+                Text("⚠ CHARGE CONTROL BRIEFLY FLIPS THE MAC TO BATTERY POWER — DISPLAYS\nOR HUBS SHARING THAT PATH CAN BLANK FOR A FEW SECONDS. NEVER APPLIED\nWITH THE LID CLOSED. SWITCHES ARE RATE-LIMITED TO ONCE PER MINUTE.")
+                    .font(TUI.mono(8)).foregroundStyle(TUI.amber.opacity(0.8))
+            }
 
             Text(statusLine)
                 .font(TUI.mono(8)).foregroundStyle(TUI.faint)
@@ -279,6 +290,7 @@ struct ChargeControlBox: View {
         var parts: [String] = []
         if c.chargingInhibited { parts.append("CHARGING PAUSED") }
         if c.forcingDischarge { parts.append("FORCING DISCHARGE") }
+        if Lid.isClosed() ?? c.lidClosed { parts.append("LID CLOSED — WRITES HELD") }
         if parts.isEmpty { parts.append("CHARGING ALLOWED") }
         parts.append("LIMIT SURVIVES APP QUIT + REBOOT (HELPER DAEMON)")
         return parts.joined(separator: " • ")
