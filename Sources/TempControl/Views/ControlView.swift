@@ -21,6 +21,7 @@ struct ControlView: View {
             } else {
                 HStack(alignment: .top, spacing: 16) {
                     TempDial(value: $store.desiredTarget) { store.pushControl() }
+                        .opacity(store.desiredEnabled ? 1 : 0.35)
                     ControlStatusPanel()
                 }
             }
@@ -118,38 +119,65 @@ struct ControlStatusPanel: View {
         let control = store.snap.control
         let hottest = store.snap.hottest
         VStack(alignment: .leading, spacing: 8) {
+            // Explicit two-state selector: who is driving the fans?
+            HStack(spacing: 6) {
+                TUIButton(label: "[ MACOS DEFAULT ]",
+                          active: !store.desiredEnabled,
+                          activeColor: TUI.mem) {
+                    guard store.desiredEnabled else { return }
+                    store.desiredEnabled = false
+                    store.pushControl()
+                }
+                TUIButton(label: "[ MAX COOLING ]",
+                          active: store.desiredEnabled,
+                          activeColor: TUI.amber) {
+                    guard !store.desiredEnabled else { return }
+                    store.desiredEnabled = true
+                    store.pushControl()
+                }
+            }
+
+            Text(store.desiredEnabled
+                 ? "TEMPCONTROL HOLDS THE CHIP AT \(Int(store.desiredTarget))°C —\nFANS RAMP EXPONENTIALLY HARDER THE HOTTER IT GETS"
+                 : "MACOS IS CONTROLLING THE FANS AS USUAL —\nTEMPCONTROL IS ONLY MONITORING")
+                .font(TUI.mono(8))
+                .foregroundStyle(store.desiredEnabled ? TUI.amber : TUI.dim)
+
             HStack(spacing: 14) {
                 StatCell(label: "HOTTEST",
                          value: hottest.map { String(format: "%.1f°C", $0) } ?? "-",
                          color: hottest.map(TUI.tempColor) ?? TUI.dim)
-                StatCell(label: "MODE",
-                         value: control?.engaged == true ? "BOOST" : "AUTO",
-                         color: control?.engaged == true ? TUI.amber : TUI.mem)
+                StatCell(label: "FANS DRIVEN BY",
+                         value: modeText,
+                         color: modeColor)
                 StatCell(label: "FAN CMD",
                          value: control?.commandedRPM.map { String(format: "%.0f RPM", $0) } ?? "-",
                          color: TUI.fan)
             }
 
-            HStack(spacing: 8) {
-                TUIButton(label: store.desiredEnabled ? "[ BOOST: ON ]" : "[ BOOST: OFF ]",
-                          active: store.desiredEnabled,
-                          activeColor: TUI.amber) {
-                    store.desiredEnabled.toggle()
-                    store.pushControl()
-                }
-                TUIButton(label: "[ LOW POWER ]",
-                          active: store.snap.control?.lowPowerMode == true,
-                          activeColor: TUI.mem) {
-                    store.setLowPower(!(store.snap.control?.lowPowerMode ?? false))
-                }
+            if store.desiredEnabled {
+                BoostCurveView(target: store.desiredTarget, hottest: hottest)
+                    .frame(height: 40)
             }
 
-            BoostCurveView(target: store.desiredTarget, hottest: hottest)
-                .frame(height: 40)
-
-            Text("FANS RAMP EXPONENTIALLY PAST TARGET+2°C\nRELEASES TO MACOS AUTO BELOW TARGET−2°C")
-                .font(TUI.mono(8)).foregroundStyle(TUI.faint)
+            TUIButton(label: "[ LOW POWER MODE ]",
+                      active: store.snap.control?.lowPowerMode == true,
+                      activeColor: TUI.mem) {
+                store.setLowPower(!(store.snap.control?.lowPowerMode ?? false))
+            }
         }
+    }
+
+    /// Three honest states: macOS has the fans; max cooling is armed but the
+    /// chip is under target (fans still macOS's); or we're actively boosting.
+    private var modeText: String {
+        guard store.desiredEnabled else { return "MACOS" }
+        return store.snap.control?.engaged == true ? "TEMPCONTROL" : "MACOS (IN BAND)"
+    }
+
+    private var modeColor: Color {
+        guard store.desiredEnabled else { return TUI.mem }
+        return store.snap.control?.engaged == true ? TUI.amber : TUI.mem
     }
 }
 
