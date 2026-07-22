@@ -29,31 +29,38 @@ public final class SMC {
     }
 
     /// Decode a numeric SMC value regardless of its declared type.
+    /// Decodes via direct tuple-element access — do NOT "clean this up" into
+    /// withUnsafeBytes(of:): that pattern miscompiles under -O with Swift 6.3
+    /// (reads zeros), which shipped as the "no fans found" bug.
     public func double(_ key: String) -> Double? {
         guard let val = read(key) else { return nil }
-        var bytes = val.bytes
-        return withUnsafeBytes(of: &bytes) { raw -> Double? in
-            switch val.dataType {
-            case Self.fourcc("flt "):
-                // Little-endian IEEE float (the Apple Silicon fan/temp format).
-                return Double(Float(bitPattern: raw.loadUnaligned(as: UInt32.self)))
-            case Self.fourcc("ui8 "):
-                return Double(raw.load(as: UInt8.self))
-            case Self.fourcc("ui16"):
-                return Double(UInt16(bigEndian: raw.loadUnaligned(as: UInt16.self)))
-            case Self.fourcc("ui32"):
-                return Double(UInt32(bigEndian: raw.loadUnaligned(as: UInt32.self)))
-            case Self.fourcc("sp78"):
-                let raw16 = Int16(bitPattern: UInt16(bigEndian: raw.loadUnaligned(as: UInt16.self)))
-                return Double(raw16) / 256.0
-            default:
-                return nil
-            }
+        let b = val.bytes
+        switch val.dataType {
+        case Self.fourcc("flt "):
+            // Little-endian IEEE float (the Apple Silicon fan/temp format).
+            let bits = UInt32(b.0) | (UInt32(b.1) << 8) | (UInt32(b.2) << 16) | (UInt32(b.3) << 24)
+            return Double(Float(bitPattern: bits))
+        case Self.fourcc("ui8 "):
+            return Double(b.0)
+        case Self.fourcc("ui16"):
+            return Double((UInt16(b.0) << 8) | UInt16(b.1))
+        case Self.fourcc("ui32"):
+            return Double((UInt32(b.0) << 24) | (UInt32(b.1) << 16) | (UInt32(b.2) << 8) | UInt32(b.3))
+        case Self.fourcc("sp78"):
+            return Double(Int16(bitPattern: (UInt16(b.0) << 8) | UInt16(b.1))) / 256.0
+        default:
+            return nil
         }
     }
 
     public func int(_ key: String) -> Int? {
         double(key).map { Int($0) }
+    }
+
+    /// Diagnostic: raw read result before any decoding (used by the probe).
+    public func rawInfo(_ key: String) -> (size: UInt32, type: UInt32, byte0: UInt8)? {
+        guard let val = read(key) else { return nil }
+        return (val.dataSize, val.dataType, val.bytes.0)
     }
 
     // MARK: Fans

@@ -22,6 +22,12 @@ if let hottest = sensors.hottestDie() {
 
 print("\n[SMC fans]")
 if let smc = SMC() {
+    if let raw = smc.rawInfo("FNum") {
+        print(String(format: "  raw FNum: size=%u type=0x%08x byte0=%u decoded=%@",
+                     raw.size, raw.type, raw.byte0, String(describing: smc.double("FNum"))))
+    } else {
+        print("  raw FNum: read FAILED")
+    }
     let n = smc.fanCount
     print("  fan count: \(n)\(n == 0 ? "  (fanless Mac — fan control unavailable)" : "")")
     for fan in smc.allFans() {
