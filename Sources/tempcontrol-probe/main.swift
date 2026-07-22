@@ -34,6 +34,17 @@ if let smc = SMC() {
         print(String(format: "  fan%d: actual %.0f rpm  range %.0f–%.0f  target %.0f",
                      fan.id, fan.actualRPM, fan.minRPM, fan.maxRPM, fan.targetRPM))
     }
+    print("\n[SMC battery-control keys]")
+    for (key, label) in [("CH0B", "charge inhibit B"), ("CH0C", "charge inhibit C"),
+                         ("CH0I", "adapter disable"), ("CHWA", "80% hw limit"),
+                         ("ACLC", "magsafe led")] {
+        if let raw = smc.rawInfo(key) {
+            print(String(format: "  %@ (%@): size=%u type=0x%08x value=%u", key, label, raw.size, raw.type, raw.byte0))
+        } else {
+            print("  \(key) (\(label)): not available")
+        }
+    }
+
     print("\n[SMC power rails]")
     for (key, label) in [("PSTR", "system total"), ("PDTR", "DC-in/adapter"), ("PPBR", "battery")] {
         if let w = smc.double(key) {

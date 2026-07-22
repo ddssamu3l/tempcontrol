@@ -64,6 +64,21 @@ Removes the app, the helper, and the daemon completely. Fans revert to macOS con
 | **FANS** | Live RPM per fan, min–max range, boost state |
 | **STORAGE** | SSD capacity, live read/write throughput |
 | **TEMP CONTROL** | Target dial, hottest-sensor readout, live boost curve with your current position on it, low power mode toggle |
+| **BATTERY** (its own tab) | Hardware battery % (the pack's real number, not macOS's smoothed one), live power flow (adapter → system → battery watts), health/cycles/capacity/temp — plus full charge management below |
+
+## Battery management (replaces AlDente)
+
+The BATTERY tab replicates AlDente's paid feature set, running in TempControl's root helper — which means limits keep working with the app closed and across reboots, no separate purchase:
+
+- **Charge limit** (50–100%) — charging stops at your limit, marked on the charge bar
+- **Discharge to limit** — actively drains back down when you're above the limit while plugged in
+- **Sailing mode** — lets charge drift ~5% below the limit before recharging, avoiding micro-cycles
+- **Heat protection** — pauses charging when the battery runs hot (35°C threshold)
+- **Calibration** — automated full cycle (100% → hold 1h → 15% → back to limit) to recalibrate the battery gauge
+- **Top Up** — one-shot charge to 100% for a travel day, then back to your limit
+- **MagSafe LED control** — LED goes green when held at limit, orange while charging
+
+Capability is detected at runtime: the charge-control SMC keys vary across Apple Silicon generations and are only visible to root, so the panel tells you honestly which features your machine supports. Uninstalling always resets charging to macOS defaults.
 
 Menu bar shows the live hottest die temp; the icon becomes a flame 🔥 while boost is engaged.
 

@@ -2,19 +2,33 @@ import SwiftUI
 import ServiceManagement
 import Shared
 
+/// Add a case + view here to grow the app with more sections later.
+enum Panel: String, CaseIterable {
+    case system = "SYSTEM"
+    case battery = "BATTERY"
+}
+
 struct DashboardView: View {
     @EnvironmentObject var store: MetricsStore
+    @State private var panel: Panel = .system
 
     var body: some View {
         VStack(spacing: 8) {
             header
+            TUITabBar(tabs: Panel.allCases.map { ($0, $0.rawValue) }, selection: $panel)
+                .padding(.horizontal, 12)
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 8) {
                     if store.sysInfo.isAppleSilicon {
-                        SoCView()
-                        FansView()
-                        StorageView()
-                        ControlView()
+                        switch panel {
+                        case .system:
+                            SoCView()
+                            FansView()
+                            StorageView()
+                            ControlView()
+                        case .battery:
+                            BatteryPanel()
+                        }
                     } else {
                         Text("TEMPCONTROL REQUIRES APPLE SILICON")
                             .font(TUI.mono(11)).foregroundStyle(TUI.red)

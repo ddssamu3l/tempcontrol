@@ -16,6 +16,10 @@ struct Snapshot {
     /// Whole-machine draw from the SMC (PSTR) — includes display, SSD, fans;
     /// works without the helper.
     var systemPowerW: Double?
+    /// Actual adapter input right now (SMC PDTR), not the adapter's rating.
+    var adapterPowerW: Double?
+    var battery: BatteryInfo?
+    var batteryControl: BatteryControlState?
     var pm: PMSample?
     var control: ControlStatus?
     var helperAvailable = false
@@ -30,6 +34,8 @@ struct History {
     var diskRead: [Double] = []
     var diskWrite: [Double] = []
     var fanRPM: [Double] = []
+    var batteryPct: [Double] = []
+    var batteryW: [Double] = []
 
     static let capacity = 120
     mutating func push(_ keyPath: WritableKeyPath<History, [Double]>, _ v: Double) {
@@ -45,6 +51,7 @@ final class MetricsStore: ObservableObject {
     @Published var history = History()
     @Published var desiredTarget: Double = 80
     @Published var desiredEnabled = false
+    @Published var batterySettings = BatterySettings()
 
     let sysInfo = SystemInfo.detect()
 
@@ -53,9 +60,11 @@ final class MetricsStore: ObservableObject {
     private let sensors = HIDSensors()
     private let smc = SMC()
     private let helper = HelperClient()
+    private let batteryReader = BatteryReader()
     private let queue = DispatchQueue(label: "tempcontrol.metrics", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var syncedControlFromHelper = false
+    private var syncedBatteryFromHelper = false
 
     /// 1s refresh while the dashboard is visible; 5s in the background
     /// (keeps the menu bar temp fresh and the helper heartbeat alive).
@@ -90,6 +99,8 @@ final class MetricsStore: ObservableObject {
         s.fans = smc?.allFans() ?? []
         s.fanCount = smc?.fanCount ?? 0
         s.systemPowerW = smc?.double("PSTR")
+        s.adapterPowerW = smc?.double("PDTR")
+        s.battery = batteryReader.read()
 
         let wantFullSample = popoverOpen
         let needHeartbeat = desiredEnabled
@@ -115,6 +126,7 @@ final class MetricsStore: ObservableObject {
             s.helperAvailable = true
             s.pm = helperSample.pm
             s.control = helperSample.control
+            s.batteryControl = helperSample.battery
         } else if helperTried {
             s.helperAvailable = false
         } else {
@@ -130,6 +142,11 @@ final class MetricsStore: ObservableObject {
                 self.desiredTarget = c.targetTemp
                 self.desiredEnabled = c.enabled
             }
+            // Same one-time adoption for battery settings (helper persists them).
+            if let b = s.batteryControl, !self.syncedBatteryFromHelper {
+                self.syncedBatteryFromHelper = true
+                self.batterySettings = b.settings
+            }
             self.snap = s
             self.history.push(\.cpu, s.totalLoad)
             self.history.push(\.gpu, s.gpu.deviceUtil ?? 0)
@@ -138,6 +155,8 @@ final class MetricsStore: ObservableObject {
             self.history.push(\.diskRead, s.disk.readBps)
             self.history.push(\.diskWrite, s.disk.writeBps)
             self.history.push(\.fanRPM, s.fans.map(\.actualRPM).max() ?? 0)
+            self.history.push(\.batteryPct, s.battery?.hwPercent ?? 0)
+            self.history.push(\.batteryW, s.battery?.batteryPowerW ?? 0)
         }
     }
     private var snapHelperWasAvailable = false
@@ -163,5 +182,30 @@ final class MetricsStore: ObservableObject {
 
     func setLowPower(_ on: Bool) {
         helper.setLowPower(on) { _ in }
+    }
+
+    // MARK: battery actions
+
+    func pushBatterySettings() {
+        helper.setBatterySettings(batterySettings) { [weak self] state in
+            DispatchQueue.main.async {
+                if let state {
+                    self?.snap.batteryControl = state
+                    self?.batterySettings = state.settings
+                }
+            }
+        }
+    }
+
+    func setTopUp(_ on: Bool) {
+        helper.setTopUp(on) { [weak self] state in
+            DispatchQueue.main.async { if let state { self?.snap.batteryControl = state } }
+        }
+    }
+
+    func setCalibration(_ on: Bool) {
+        helper.setCalibration(on) { [weak self] state in
+            DispatchQueue.main.async { if let state { self?.snap.batteryControl = state } }
+        }
     }
 }

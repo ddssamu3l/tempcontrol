@@ -26,11 +26,15 @@ final class HelperClient {
     private func request(_ cmd: String,
                          bools: [String: Bool] = [:],
                          doubles: [String: Double] = [:],
+                         json: Data? = nil,
                          completion: @escaping (xpc_object_t?) -> Void) {
         let msg = xpc_dictionary_create(nil, nil, 0)
         xpc_dictionary_set_string(msg, "cmd", cmd)
         for (k, v) in bools { xpc_dictionary_set_bool(msg, k, v) }
         for (k, v) in doubles { xpc_dictionary_set_double(msg, k, v) }
+        json?.withUnsafeBytes { raw in
+            if let base = raw.baseAddress { xpc_dictionary_set_data(msg, "json", base, raw.count) }
+        }
         xpc_connection_send_message_with_reply(connection(), msg, queue) { reply in
             completion(xpc_get_type(reply) == XPC_TYPE_DICTIONARY ? reply : nil)
         }
@@ -62,6 +66,24 @@ final class HelperClient {
     func setLowPower(_ on: Bool, _ completion: @escaping (Bool) -> Void) {
         request("setLowPower", bools: ["on": on]) { reply in
             completion(reply.map { xpc_dictionary_get_bool($0, "ok") } ?? false)
+        }
+    }
+
+    func setBatterySettings(_ s: BatterySettings, _ completion: @escaping (BatteryControlState?) -> Void) {
+        request("setBattery", json: try? JSONEncoder().encode(s)) {
+            completion(self.decodeJSON($0, BatteryControlState.self))
+        }
+    }
+
+    func setTopUp(_ on: Bool, _ completion: @escaping (BatteryControlState?) -> Void) {
+        request("topUp", bools: ["on": on]) {
+            completion(self.decodeJSON($0, BatteryControlState.self))
+        }
+    }
+
+    func setCalibration(_ on: Bool, _ completion: @escaping (BatteryControlState?) -> Void) {
+        request("calibrate", bools: ["on": on]) {
+            completion(self.decodeJSON($0, BatteryControlState.self))
         }
     }
 }

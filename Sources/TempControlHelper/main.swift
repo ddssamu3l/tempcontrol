@@ -12,11 +12,13 @@ final class HelperCore {
     private let smc = SMC()
     private let sensors = HIDSensors()
     private lazy var fans = FanController(smc: smc, sensors: sensors)
+    private lazy var battery = BatteryController(smc: smc)
     private let pm = PowerMetricsStreamer()
     private let queue = DispatchQueue(label: "tempcontrol.helper")
     private var lastHeartbeat = Date()
     private var listener: xpc_connection_t?
     private var timer: DispatchSourceTimer?
+    private var tickCount = 0
 
     func run() {
         setupSignals()
@@ -38,6 +40,9 @@ final class HelperCore {
             }
             self.fans.tick()
             self.pm.reapIfIdle()
+            // Battery moves slowly — every 5th tick (10s) is plenty.
+            self.tickCount += 1
+            if self.tickCount % 5 == 0 { self.battery.tick() }
         }
         t.resume()
         timer = t
@@ -89,7 +94,25 @@ final class HelperCore {
             pm.markWanted()
             var status = fans.status()
             status.lowPowerMode = readLowPowerMode()
-            encode(HelperSample(pm: pm.latest, control: status), into: reply)
+            encode(HelperSample(pm: pm.latest, control: status, battery: battery.state()),
+                   into: reply)
+
+        case "setBattery":
+            var len = 0
+            if let ptr = xpc_dictionary_get_data(msg, "json", &len), len > 0,
+               let s = try? JSONDecoder().decode(BatterySettings.self,
+                                                 from: Data(bytes: ptr, count: len)) {
+                battery.apply(s)
+            }
+            encode(battery.state(), into: reply)
+
+        case "topUp":
+            battery.setTopUp(xpc_dictionary_get_bool(msg, "on"))
+            encode(battery.state(), into: reply)
+
+        case "calibrate":
+            battery.setCalibration(xpc_dictionary_get_bool(msg, "on"))
+            encode(battery.state(), into: reply)
 
         case "heartbeat", "status":
             lastHeartbeat = Date()
@@ -152,6 +175,14 @@ final class HelperCore {
         p.waitUntilExit()
         return p.terminationStatus == 0
     }
+}
+
+// CLI mode used by uninstall.sh (run as root): put every battery-control SMC
+// key back to macOS defaults, then exit.
+if CommandLine.arguments.contains("--reset-battery") {
+    BatteryController.resetStandalone()
+    print("battery control keys reset to macOS defaults")
+    exit(0)
 }
 
 let core = HelperCore()

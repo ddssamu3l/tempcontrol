@@ -17,5 +17,11 @@ Owner: Samuel (@ddsamu3l). These are standing requirements from the project owne
 - Helper reverts fans to macOS automatic control: on app quit (heartbeat timeout), on helper exit/crash-restart, on control disable, and at helper startup.
 - Target temp range clamped to 50–95 °C, ±2 °C deadband.
 
+## Battery rules (AlDente-replacement feature, added July 2026)
+- Battery settings deliberately **persist** across app quit and reboot (that's the feature) — the ONE exception to "revert on exit".
+- Consequence: `uninstall.sh` MUST run `tempcontrol-helper --reset-battery` before deleting the helper, or a charge limit could outlive the app. Never remove that step.
+- Charge-control SMC keys are discovered at runtime as root (CH0B/CH0C → CHIE → CHTE; discharge CH0I; LED ACLC) — they are invisible to unprivileged reads, so the probe CANNOT verify them; only the running helper can. UI must report per-feature capability honestly.
+- Limit clamped to 50–100%; discharge floor 15% (calibration only).
+
 ## First milestone
 - Iteration 1 = user can run `scripts/install.sh` and get: menu bar app with live dashboard + working fan boost control. Ship this before polish.

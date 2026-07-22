@@ -125,6 +125,76 @@ struct HeatCell: View {
     }
 }
 
+/// Reusable top tab bar: ─[ SYSTEM ]─[ BATTERY ]─ … add cases to the app's
+/// Panel enum and a view for each; the bar scales automatically.
+struct TUITabBar<Tab: Hashable>: View {
+    let tabs: [(Tab, String)]
+    @Binding var selection: Tab
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Rectangle().fill(TUI.faint).frame(height: 1).frame(width: 8)
+            ForEach(tabs, id: \.0) { tab, label in
+                let active = selection == tab
+                Button {
+                    selection = tab
+                } label: {
+                    Text("[ \(label) ]")
+                        .font(TUI.mono(10, active ? .bold : .regular))
+                        .foregroundStyle(active ? TUI.bg : TUI.dim)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(active ? TUI.fg : TUI.bg)
+                }
+                .buttonStyle(.plain)
+                Rectangle().fill(TUI.faint).frame(height: 1).frame(width: 8)
+            }
+            Rectangle().fill(TUI.faint).frame(height: 1)
+        }
+    }
+}
+
+/// Horizontal drag slider with the value printed at the right.
+struct TUISlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var step: Double = 1
+    var color: Color = TUI.fg
+    var format: (Double) -> String = { String(format: "%.0f", $0) }
+    var onCommit: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 8) {
+            GeometryReader { geo in
+                let frac = (value - range.lowerBound) / (range.upperBound - range.lowerBound)
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(Color(white: 0.09))
+                    Rectangle().fill(color.opacity(0.55))
+                        .frame(width: max(0, min(1, frac)) * geo.size.width)
+                    Rectangle().fill(color)
+                        .frame(width: 3)
+                        .offset(x: max(0, min(1, frac)) * (geo.size.width - 3))
+                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { g in
+                            let f = min(1, max(0, g.location.x / geo.size.width))
+                            let raw = range.lowerBound + f * (range.upperBound - range.lowerBound)
+                            value = (raw / step).rounded() * step
+                        }
+                        .onEnded { _ in onCommit() }
+                )
+            }
+            .frame(height: 14)
+            Text(format(value))
+                .font(TUI.mono(11, .semibold))
+                .foregroundStyle(color)
+                .frame(width: 42, alignment: .trailing)
+        }
+    }
+}
+
 /// [ LABEL ] toggle-style TUI button.
 struct TUIButton: View {
     let label: String

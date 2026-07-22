@@ -83,6 +83,24 @@ public final class SMC {
         (0..<fanCount).compactMap { fanState($0) }
     }
 
+    /// Whether a key exists (keyinfo readable). Root sees keys that are
+    /// hidden from regular users (e.g. the battery charge-control keys).
+    public func keyExists(_ key: String) -> Bool {
+        read(key) != nil
+    }
+
+    // MARK: Writes (root only — called from the helper)
+
+    /// Write a single-byte value (the battery/LED control key format).
+    @discardableResult
+    public func writeUInt8(_ key: String, _ value: UInt8) -> Bool {
+        var val = SMCVal_t()
+        val.dataSize = 1
+        val.dataType = Self.fourcc("ui8 ")
+        val.bytes.0 = value
+        return write(key, val)
+    }
+
     // MARK: Fan writes (root only — called from the helper)
 
     @discardableResult

@@ -76,8 +76,9 @@ public struct ControlStatus: Codable {
 public struct HelperSample: Codable {
     public var pm: PMSample?
     public var control: ControlStatus
-    public init(pm: PMSample?, control: ControlStatus) {
-        self.pm = pm; self.control = control
+    public var battery: BatteryControlState?
+    public init(pm: PMSample?, control: ControlStatus, battery: BatteryControlState? = nil) {
+        self.pm = pm; self.control = control; self.battery = battery
     }
 }
 
