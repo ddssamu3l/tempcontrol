@@ -13,6 +13,9 @@ struct Snapshot {
     var gpu = GPUStats()
     var fans: [FanState] = []
     var fanCount: Int = 0
+    /// Whole-machine draw from the SMC (PSTR) — includes display, SSD, fans;
+    /// works without the helper.
+    var systemPowerW: Double?
     var pm: PMSample?
     var control: ControlStatus?
     var helperAvailable = false
@@ -86,6 +89,7 @@ final class MetricsStore: ObservableObject {
         s.gpu = sampleGPU()
         s.fans = smc?.allFans() ?? []
         s.fanCount = smc?.fanCount ?? 0
+        s.systemPowerW = smc?.double("PSTR")
 
         let wantFullSample = popoverOpen
         let needHeartbeat = desiredEnabled

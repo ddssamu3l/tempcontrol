@@ -34,6 +34,14 @@ if let smc = SMC() {
         print(String(format: "  fan%d: actual %.0f rpm  range %.0f–%.0f  target %.0f",
                      fan.id, fan.actualRPM, fan.minRPM, fan.maxRPM, fan.targetRPM))
     }
+    print("\n[SMC power rails]")
+    for (key, label) in [("PSTR", "system total"), ("PDTR", "DC-in/adapter"), ("PPBR", "battery")] {
+        if let w = smc.double(key) {
+            print(String(format: "  %@ (%@): %.2f W", key, label, w))
+        } else {
+            print("  \(key) (\(label)): not available")
+        }
+    }
 } else {
     print("  !! could not open SMC")
 }

@@ -38,6 +38,11 @@ struct DashboardView: View {
                 .font(TUI.mono(12, .bold)).foregroundStyle(TUI.fg)
             Text("v0.1").font(TUI.mono(9)).foregroundStyle(TUI.faint)
             Spacer()
+            if let sys = store.snap.systemPowerW {
+                Text(String(format: "SYS %.1fW", sys))
+                    .font(TUI.mono(12, .bold))
+                    .foregroundStyle(TUI.amber)
+            }
             if let pressure = store.snap.pm?.thermalPressure {
                 Text("THERMAL: \(pressure.uppercased())")
                     .font(TUI.mono(9, .bold))

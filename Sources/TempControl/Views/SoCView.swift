@@ -49,6 +49,9 @@ struct CPUSection: View {
                 StatCell(label: "CPU",
                          value: String(format: "%3.0f%%", store.snap.totalLoad * 100),
                          color: TUI.cpu)
+                StatCell(label: "POWER",
+                         value: store.snap.pm?.cpuPowerW.map { String(format: "%.1fW", $0) } ?? "-",
+                         color: TUI.fg)
                 Spacer()
                 Sparkline(values: store.history.cpu, maxValue: 1, color: TUI.cpu)
                     .frame(width: 240, height: 26)
