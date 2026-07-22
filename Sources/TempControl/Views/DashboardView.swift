@@ -94,7 +94,7 @@ struct LoginToggle: View {
     @State private var enabled = SMAppService.mainApp.status == .enabled
 
     var body: some View {
-        TUIButton(label: enabled ? "[ LOGIN: ON ]" : "[ LOGIN: OFF ]",
+        TUIButton(label: enabled ? "[ LAUNCH ON MAC START: ON ]" : "[ LAUNCH ON MAC START: OFF ]",
                   active: enabled,
                   activeColor: TUI.mem) {
             do {
