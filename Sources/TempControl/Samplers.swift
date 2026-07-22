@@ -135,33 +135,80 @@ func sampleMemory(totalB: Int64) -> MemStats {
     return stats
 }
 
-// MARK: - Storage capacity + I/O rates
+// MARK: - Storage: capacity, volumes, and detailed I/O
+
+struct VolumeInfo: Identifiable {
+    var id: String { path }
+    let path: String
+    let name: String
+    let totalB: Int64
+    let freeB: Int64
+}
 
 struct DiskStats {
     var totalB: Int64 = 0
+    /// Finder-style free space (includes purgeable).
     var freeB: Int64 = 0
+    var purgeableB: Int64 = 0
     var readBps: Double = 0
     var writeBps: Double = 0
+    var readIOPS: Double = 0
+    var writeIOPS: Double = 0
+    /// Average time per I/O over the last sample window.
+    var readLatencyMs: Double = 0
+    var writeLatencyMs: Double = 0
+    /// Cumulative since boot (the raw driver counters).
+    var bootReadB: Int64 = 0
+    var bootWriteB: Int64 = 0
+    var volumes: [VolumeInfo] = []
 }
 
 final class DiskSampler {
-    private var prevRead: Int64 = 0
-    private var prevWrite: Int64 = 0
+    private struct Counters {
+        var readB: Int64 = 0, writeB: Int64 = 0
+        var readOps: Int64 = 0, writeOps: Int64 = 0
+        var readNs: Int64 = 0, writeNs: Int64 = 0
+    }
+    private var prev: Counters?
     private var prevTime: Date?
 
     func sample() -> DiskStats {
         var stats = DiskStats()
+        sampleCapacity(&stats)
+        sampleIO(&stats)
+        return stats
+    }
 
-        var fs = statfs()
-        if statfs("/", &fs) == 0 {
-            let block = Int64(fs.f_bsize)
-            stats.totalB = Int64(fs.f_blocks) * block
-            stats.freeB = Int64(fs.f_bavail) * block
+    private func sampleCapacity(_ stats: inout DiskStats) {
+        let keys: Set<URLResourceKey> = [
+            .volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey, .volumeIsBrowsableKey,
+        ]
+        let urls = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: Array(keys),
+            options: [.skipHiddenVolumes]) ?? []
+        for url in urls {
+            guard let v = try? url.resourceValues(forKeys: keys),
+                  v.volumeIsBrowsable == true,
+                  let total = v.volumeTotalCapacity, total > 1_000_000_000
+            else { continue }
+            let plainFree = Int64(v.volumeAvailableCapacity ?? 0)
+            let importantFree = v.volumeAvailableCapacityForImportantUsage ?? Int64(plainFree)
+            stats.volumes.append(VolumeInfo(
+                path: url.path,
+                name: v.volumeName ?? url.lastPathComponent,
+                totalB: Int64(total),
+                freeB: max(plainFree, importantFree)))
+            if url.path == "/" {
+                stats.totalB = Int64(total)
+                stats.freeB = max(plainFree, importantFree)
+                stats.purgeableB = max(0, importantFree - plainFree)
+            }
         }
+    }
 
-        // Cumulative bytes across all physical drives from IOBlockStorageDriver.
-        var read: Int64 = 0
-        var write: Int64 = 0
+    private func sampleIO(_ stats: inout DiskStats) {
+        var c = Counters()
         var iter = io_iterator_t()
         if IOServiceGetMatchingServices(kIOMainPortDefault,
                                         IOServiceMatching("IOBlockStorageDriver"), &iter) == KERN_SUCCESS {
@@ -172,24 +219,39 @@ final class DiskSampler {
                       let dict = props?.takeRetainedValue() as? [String: Any],
                       let s = dict["Statistics"] as? [String: Any]
                 else { continue }
-                read += (s["Bytes (Read)"] as? Int64) ?? 0
-                write += (s["Bytes (Write)"] as? Int64) ?? 0
+                c.readB += (s["Bytes (Read)"] as? Int64) ?? 0
+                c.writeB += (s["Bytes (Write)"] as? Int64) ?? 0
+                c.readOps += (s["Operations (Read)"] as? Int64) ?? 0
+                c.writeOps += (s["Operations (Write)"] as? Int64) ?? 0
+                c.readNs += (s["Total Time (Read)"] as? Int64) ?? 0
+                c.writeNs += (s["Total Time (Write)"] as? Int64) ?? 0
             }
             IOObjectRelease(iter)
         }
 
+        stats.bootReadB = c.readB
+        stats.bootWriteB = c.writeB
+
         let now = Date()
-        if let prevTime, read >= prevRead, write >= prevWrite {
+        if let prev, let prevTime {
             let dt = now.timeIntervalSince(prevTime)
             if dt > 0 {
-                stats.readBps = Double(read - prevRead) / dt
-                stats.writeBps = Double(write - prevWrite) / dt
+                stats.readBps = Double(max(0, c.readB - prev.readB)) / dt
+                stats.writeBps = Double(max(0, c.writeB - prev.writeB)) / dt
+                let dReadOps = max(0, c.readOps - prev.readOps)
+                let dWriteOps = max(0, c.writeOps - prev.writeOps)
+                stats.readIOPS = Double(dReadOps) / dt
+                stats.writeIOPS = Double(dWriteOps) / dt
+                if dReadOps > 0 {
+                    stats.readLatencyMs = Double(max(0, c.readNs - prev.readNs)) / Double(dReadOps) / 1e6
+                }
+                if dWriteOps > 0 {
+                    stats.writeLatencyMs = Double(max(0, c.writeNs - prev.writeNs)) / Double(dWriteOps) / 1e6
+                }
             }
         }
-        prevRead = read
-        prevWrite = write
+        prev = c
         prevTime = now
-        return stats
     }
 }
 
@@ -198,7 +260,10 @@ final class DiskSampler {
 struct GPUStats {
     var deviceUtil: Double?
     var rendererUtil: Double?
+    var tilerUtil: Double?
     var inUseMemB: Int64?
+    var allocMemB: Int64?
+    var coreCount: Int?
 }
 
 func sampleGPU() -> GPUStats {
@@ -216,7 +281,10 @@ func sampleGPU() -> GPUStats {
         else { continue }
         if let v = perf["Device Utilization %"] as? Int { stats.deviceUtil = Double(v) / 100.0 }
         if let v = perf["Renderer Utilization %"] as? Int { stats.rendererUtil = Double(v) / 100.0 }
+        if let v = perf["Tiler Utilization %"] as? Int { stats.tilerUtil = Double(v) / 100.0 }
         if let v = perf["In use system memory"] as? Int64 { stats.inUseMemB = v }
+        if let v = perf["Alloc system memory"] as? Int64 { stats.allocMemB = v }
+        if let v = dict["gpu-core-count"] as? Int { stats.coreCount = v }
         if stats.deviceUtil != nil { break }
     }
     IOObjectRelease(iter)

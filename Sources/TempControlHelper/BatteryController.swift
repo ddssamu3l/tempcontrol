@@ -29,6 +29,9 @@ final class BatteryController {
     private var inhibited = false
     private var discharging = false
     private var topUp = false
+    /// One-shot: user just lowered the limit below the current charge —
+    /// drain down to the new limit even if autoDischarge is off.
+    private var drainToLimit = false
     private var calibration: CalibrationPhase = .idle
     private var holdUntil: Date?
     private var lastLED: UInt8?
@@ -73,6 +76,13 @@ final class BatteryController {
         settings.limitPct = min(100, max(50, settings.limitPct))
         settings.sailBelowPct = min(20, max(2, settings.sailBelowPct))
         settings.heatLimitC = min(45, max(30, settings.heatLimitC))
+        // Setting the limit below the current charge means "take me there":
+        // drain down to it once, no separate toggle needed.
+        if settings.limitPct < 100,
+           let pct = reader.read()?.hwPercent,
+           Double(settings.limitPct) < pct - 0.5 {
+            drainToLimit = true
+        }
         saveSettings()
         tick()
     }
@@ -121,7 +131,8 @@ final class BatteryController {
         if calibration == .discharging {
             needsDischarge = true
         } else {
-            needsDischarge = settings.autoDischarge && pct > target + 0.5
+            if pct <= target + 0.5 { drainToLimit = false }   // one-shot done
+            needsDischarge = (settings.autoDischarge || drainToLimit) && pct > target + 0.5
         }
         let wantDischarge = needsDischarge && dischargeKey != nil && info.externalConnected
 

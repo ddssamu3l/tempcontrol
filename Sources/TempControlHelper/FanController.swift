@@ -27,6 +27,24 @@ final class FanController {
     private(set) var lastHottest: Double?
     private var baselineRPM: [Int: Double] = [:]
 
+    // Smoothing state: fans kick up instantly on spikes, hold, then glide
+    // down slowly instead of chasing every temperature wiggle.
+    private var emaError: Double?
+    private var boostFraction: Double = 0
+    private var lastKickUp = Date.distantPast
+    private var belowBandSince: Date?
+    private var lastWrittenRPM: [Int: Double] = [:]
+
+    /// Fastest allowed decay: fraction of the fan span per 2s tick (~1%/s).
+    private let decayPerTick = 0.02
+    /// After any kick-up, don't start decaying for this long.
+    private let holdAfterKickUp: TimeInterval = 10
+    /// Stay below target−2°C this long before handing fans back to macOS
+    /// (prevents engage/release flapping right at the band edge).
+    private let releaseAfter: TimeInterval = 30
+    /// Ignore commanded-RPM changes smaller than this (write suppression).
+    private let minRPMChange: Double = 60
+
     var fanCount: Int { smc?.fanCount ?? 0 }
 
     init(smc: SMC?, sensors: HIDSensors) {
@@ -63,6 +81,8 @@ final class FanController {
         }
 
         let error = hottest - targetTemp
+        let ema = emaError.map { $0 * 0.7 + error * 0.3 } ?? error
+        emaError = ema
 
         if !engaged {
             guard error > TC.deadband else { return }
@@ -70,23 +90,43 @@ final class FanController {
             // this is the floor we never command below.
             baselineRPM = Dictionary(uniqueKeysWithValues: smc.allFans().map { ($0.id, $0.actualRPM) })
             engaged = true
+            boostFraction = 0
         }
 
-        // Cooled to 2°C below target: hand fans back to macOS.
+        // Cooled to 2°C below target — but only release after staying there
+        // for a while, so a brief dip doesn't bounce control back and forth.
         if error < -TC.deadband {
-            release()
-            return
+            if belowBandSince == nil { belowBandSince = Date() }
+            if Date().timeIntervalSince(belowBandSince!) >= releaseAfter {
+                release()
+                return
+            }
+        } else {
+            belowBandSince = nil
         }
 
-        let fraction = BoostCurve.fraction(error: error)
+        // Spikes act on the instantaneous error (fast attack); the way down
+        // follows the smoothed error, held then rate-limited (slow decay).
+        let targetFraction = BoostCurve.fraction(error: max(error, ema))
+        if targetFraction > boostFraction {
+            boostFraction = targetFraction
+            lastKickUp = Date()
+        } else if Date().timeIntervalSince(lastKickUp) >= holdAfterKickUp {
+            boostFraction = max(targetFraction, boostFraction - decayPerTick)
+        }
+
         var commanded: Double = 0
         for fan in smc.allFans() {
             let span = max(0, fan.maxRPM - fan.minRPM)
-            let curveRPM = fan.minRPM + fraction * span
+            let curveRPM = fan.minRPM + boostFraction * span
             let rpm = min(fan.maxRPM, max(baselineRPM[fan.id] ?? fan.minRPM, curveRPM))
-            smc.setFanMode(fan.id, forced: true)
-            smc.setFanTarget(fan.id, rpm: rpm)
-            commanded = max(commanded, rpm)
+            // Skip sub-audible adjustments so the pitch isn't constantly wandering.
+            if abs((lastWrittenRPM[fan.id] ?? -1000) - rpm) >= minRPMChange {
+                smc.setFanMode(fan.id, forced: true)
+                smc.setFanTarget(fan.id, rpm: rpm)
+                lastWrittenRPM[fan.id] = rpm
+            }
+            commanded = max(commanded, lastWrittenRPM[fan.id] ?? rpm)
         }
         commandedRPM = commanded
     }
@@ -95,6 +135,10 @@ final class FanController {
         engaged = false
         commandedRPM = nil
         baselineRPM = [:]
+        emaError = nil
+        boostFraction = 0
+        belowBandSince = nil
+        lastWrittenRPM = [:]
         guard let smc else { return }
         for i in 0..<smc.fanCount {
             smc.setFanMode(i, forced: false)

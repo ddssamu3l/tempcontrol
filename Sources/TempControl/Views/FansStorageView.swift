@@ -52,31 +52,3 @@ struct FanRow: View {
         }
     }
 }
-
-struct StorageView: View {
-    @EnvironmentObject var store: MetricsStore
-
-    var body: some View {
-        BoxSection(title: "STORAGE", accent: TUI.fan) {
-            let d = store.snap.disk
-            let used = max(0, d.totalB - d.freeB)
-            let frac = d.totalB > 0 ? Double(used) / Double(d.totalB) : 0
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    StatCell(label: "SSD",
-                             value: "\(formatBytes(used)) / \(formatBytes(d.totalB))")
-                    Spacer()
-                    StatCell(label: "READ", value: formatRate(d.readBps), color: TUI.mem)
-                    StatCell(label: "WRITE", value: formatRate(d.writeBps), color: TUI.amber)
-                }
-                HBar(fraction: frac, color: frac > 0.9 ? TUI.red : TUI.fan, height: 7)
-                HStack(spacing: 6) {
-                    Sparkline(values: store.history.diskRead, maxValue: nil, color: TUI.mem)
-                        .frame(height: 20)
-                    Sparkline(values: store.history.diskWrite, maxValue: nil, color: TUI.amber)
-                        .frame(height: 20)
-                }
-            }
-        }
-    }
-}

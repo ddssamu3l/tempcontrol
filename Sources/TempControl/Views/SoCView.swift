@@ -153,10 +153,14 @@ struct GPUSection: View {
                 Sparkline(values: store.history.gpu, maxValue: 1, color: TUI.gpu)
                     .frame(width: 240, height: 26)
             }
+            // The GPU's three pipeline stages — DEVICE is overall busy;
+            // RENDERER (shading) and TILER (geometry) show where the load is.
+            VStack(alignment: .leading, spacing: 3) {
+                utilRow("DEVICE", store.snap.gpu.deviceUtil)
+                utilRow("RENDERER", store.snap.gpu.rendererUtil)
+                utilRow("TILER", store.snap.gpu.tilerUtil)
+            }
             HStack(spacing: 18) {
-                if let util = store.snap.gpu.deviceUtil {
-                    HBar(fraction: util, color: TUI.gpu, height: 7).frame(width: 120)
-                }
                 StatCell(label: "FREQ",
                          value: store.snap.pm?.gpuFreqMHz.map { String(format: "%.0fMHz", $0) } ?? "-",
                          color: TUI.fg)
@@ -166,8 +170,28 @@ struct GPUSection: View {
                 StatCell(label: "MEM USED",
                          value: store.snap.gpu.inUseMemB.map(formatBytes) ?? "-",
                          color: TUI.fg)
+                StatCell(label: "MEM ALLOC",
+                         value: store.snap.gpu.allocMemB.map(formatBytes) ?? "-",
+                         color: TUI.dim)
+                if let cores = store.snap.gpu.coreCount {
+                    StatCell(label: "GPU CORES", value: "\(cores)", color: TUI.dim)
+                }
             }
             SensorStrips(groups: [.gpu])
+            Text("APPLE EXPOSES THE GPU AS ONE BLOCK — PER-CORE GPU LOAD/TEMP DOESN'T EXIST ON ANY APP")
+                .font(TUI.mono(8)).foregroundStyle(TUI.faint)
+        }
+    }
+
+    private func utilRow(_ label: String, _ value: Double?) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(TUI.mono(9)).foregroundStyle(TUI.dim)
+                .frame(width: 58, alignment: .leading)
+            HBar(fraction: value ?? 0, color: TUI.gpu, height: 7)
+            Text(value.map { String(format: "%3.0f%%", $0 * 100) } ?? "  -")
+                .font(TUI.mono(9)).foregroundStyle(TUI.fg)
+                .frame(width: 30, alignment: .trailing)
         }
     }
 }

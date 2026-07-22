@@ -50,11 +50,14 @@ struct HBar: View {
     }
 }
 
-/// Line + soft fill history chart.
+/// Line + soft fill history chart. `refValue` draws a dashed horizontal
+/// reference line (e.g. the temp target) on the same scale.
 struct Sparkline: View {
     var values: [Double]
     var maxValue: Double?
     var color: Color
+    var refValue: Double?
+    var refColor: Color = TUI.amber
 
     var body: some View {
         Canvas { ctx, size in
@@ -90,6 +93,15 @@ struct Sparkline: View {
             }
             ctx.fill(fill, with: .color(color.opacity(0.14)))
             ctx.stroke(line, with: .color(color), lineWidth: 1.2)
+
+            if let refValue, refValue > 0, refValue <= top {
+                let y = size.height - CGFloat(min(refValue / top, 1.0)) * (size.height - 2) - 1
+                var ref = Path()
+                ref.move(to: CGPoint(x: 0, y: y))
+                ref.addLine(to: CGPoint(x: size.width, y: y))
+                ctx.stroke(ref, with: .color(refColor),
+                           style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
         }
         .background(Color(white: 0.04))
         .overlay(Rectangle().strokeBorder(TUI.grid, lineWidth: 1))

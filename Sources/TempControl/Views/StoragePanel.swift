@@ -1,0 +1,139 @@
+import SwiftUI
+import Shared
+
+/// The STORAGE tab — modeled on what dedicated disk monitors show:
+/// capacity per volume (with purgeable), live throughput, IOPS, I/O latency,
+/// cumulative traffic since boot, and drive temperature.
+struct StoragePanel: View {
+    @EnvironmentObject var store: MetricsStore
+
+    var body: some View {
+        VStack(spacing: 8) {
+            CapacityBox()
+            ActivityBox()
+            DriveBox()
+        }
+    }
+}
+
+// MARK: capacity
+
+struct CapacityBox: View {
+    @EnvironmentObject var store: MetricsStore
+
+    var body: some View {
+        let d = store.snap.disk
+        BoxSection(title: "CAPACITY", accent: TUI.fan) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    StatCell(label: "INTERNAL SSD",
+                             value: "\(formatBytes(max(0, d.totalB - d.freeB))) / \(formatBytes(d.totalB)) USED")
+                    Spacer()
+                    StatCell(label: "FREE", value: formatBytes(d.freeB), color: TUI.mem)
+                    if d.purgeableB > 100_000_000 {
+                        StatCell(label: "PURGEABLE", value: formatBytes(d.purgeableB), color: TUI.dim)
+                    }
+                }
+                ForEach(d.volumes) { vol in
+                    VolumeRow(vol: vol)
+                }
+                Text("PURGEABLE = SPACE MACOS FREES AUTOMATICALLY (SNAPSHOTS, CACHES)")
+                    .font(TUI.mono(8)).foregroundStyle(TUI.faint)
+            }
+        }
+    }
+}
+
+struct VolumeRow: View {
+    let vol: VolumeInfo
+
+    var body: some View {
+        let usedFrac = vol.totalB > 0 ? Double(vol.totalB - vol.freeB) / Double(vol.totalB) : 0
+        HStack(spacing: 8) {
+            Text(vol.name.uppercased())
+                .font(TUI.mono(9))
+                .foregroundStyle(TUI.dim)
+                .frame(width: 110, alignment: .leading)
+                .lineLimit(1)
+            HBar(fraction: usedFrac, color: usedFrac > 0.9 ? TUI.red : TUI.fan, height: 8)
+            Text(String(format: "%3.0f%%", usedFrac * 100))
+                .font(TUI.mono(9))
+                .frame(width: 30, alignment: .trailing)
+                .foregroundStyle(TUI.fg)
+        }
+    }
+}
+
+// MARK: live activity
+
+struct ActivityBox: View {
+    @EnvironmentObject var store: MetricsStore
+
+    var body: some View {
+        let d = store.snap.disk
+        BoxSection(title: "I/O ACTIVITY", accent: TUI.fan) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        StatCell(label: "READ", value: formatRate(d.readBps), color: TUI.mem)
+                        Sparkline(values: store.history.diskRead, maxValue: nil, color: TUI.mem)
+                            .frame(height: 30)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        StatCell(label: "WRITE", value: formatRate(d.writeBps), color: TUI.amber)
+                        Sparkline(values: store.history.diskWrite, maxValue: nil, color: TUI.amber)
+                            .frame(height: 30)
+                    }
+                }
+                HStack(spacing: 18) {
+                    StatCell(label: "READ IOPS", value: String(format: "%.0f", d.readIOPS), color: TUI.mem)
+                    StatCell(label: "WRITE IOPS", value: String(format: "%.0f", d.writeIOPS), color: TUI.amber)
+                    StatCell(label: "READ LAT",
+                             value: d.readLatencyMs > 0 ? String(format: "%.2fms", d.readLatencyMs) : "-",
+                             color: latColor(d.readLatencyMs))
+                    StatCell(label: "WRITE LAT",
+                             value: d.writeLatencyMs > 0 ? String(format: "%.2fms", d.writeLatencyMs) : "-",
+                             color: latColor(d.writeLatencyMs))
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private func latColor(_ ms: Double) -> Color {
+        if ms <= 0 { return TUI.dim }
+        if ms < 1 { return TUI.fg }
+        if ms < 5 { return TUI.amber }
+        return TUI.red
+    }
+}
+
+// MARK: drive-level
+
+struct DriveBox: View {
+    @EnvironmentObject var store: MetricsStore
+
+    var body: some View {
+        let d = store.snap.disk
+        BoxSection(title: "DRIVE", accent: TUI.fan) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 18) {
+                    StatCell(label: "READ SINCE BOOT", value: formatBytes(d.bootReadB), color: TUI.mem)
+                    StatCell(label: "WRITTEN SINCE BOOT", value: formatBytes(d.bootWriteB), color: TUI.amber)
+                    if let nand = nandTemp {
+                        StatCell(label: "NAND TEMP",
+                                 value: String(format: "%.1f°C", nand),
+                                 color: nand > 60 ? TUI.red : TUI.fg)
+                    }
+                    Spacer()
+                }
+                Text("WRITTEN-SINCE-BOOT IS THE NUMBER THAT WEARS SSD CELLS — SUSTAINED HEAVY WRITES MATTER MORE THAN READS")
+                    .font(TUI.mono(8)).foregroundStyle(TUI.faint)
+            }
+        }
+    }
+
+    private var nandTemp: Double? {
+        store.snap.sensors.first { $0.name.lowercased().contains("nand") }?.celsius
+    }
+}
