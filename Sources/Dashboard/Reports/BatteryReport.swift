@@ -127,15 +127,18 @@ public enum BatteryReport: PanelReporting {
             ], note: "THIS MAC DOESN'T EXPOSE THE CHARGE-CONTROL SMC KEYS. MONITORING WORKS; CHARGE LIMITING ISN'T POSSIBLE HERE.")
         }
 
+        // Displays read locally for the same reason as the lid, just below.
+        let displays = ExternalDisplay.read()
         let g = c.settings
         var rows: [ReportRow] = [
             .text("BATTERY MANAGEMENT", Fmt.onOff(g.enabled)),
             ReportRow("CHARGE LIMIT", g.limitPct >= 100 ? "OFF" : "\(g.limitPct)%",
                       raw: Double(g.limitPct), unit: "%"),
-            .text("DISCHARGE TO LIMIT", capability(g.autoDischarge, available: c.dischargeSupported)),
+            .text("DISCHARGE TO LIMIT", displays.isAttached ? "UNAVAILABLE (MONITOR CONNECTED)"
+                  : capability(g.autoDischarge, available: c.dischargeSupported)),
             ReportRow("SAILING", g.sailing ? "ON (−\(g.sailBelowPct)%)" : "OFF",
                       raw: Double(g.sailBelowPct), unit: "%"),
-            ReportRow("HEAT PROTECT", g.heatProtect ? "ON (<\(Int(g.heatLimitC))°C)" : "OFF",
+            ReportRow("KEEP BATTERY UNDER", g.heatProtect ? "\(Int(g.heatLimitC))°C (PAUSES CHARGING)" : "OFF",
                       raw: g.heatLimitC, unit: "C"),
             .text("MAGSAFE LED", capability(g.magsafeLED, available: c.ledSupported)),
             .text("TOP UP", Fmt.onOff(c.topUpActive)),
@@ -148,11 +151,14 @@ public enum BatteryReport: PanelReporting {
             // omits the field, which would decode to "open" — wrong in the one
             // direction that matters.
             .text("LID", (Lid.isClosed() ?? c.lidClosed) ? "CLOSED — CHARGE-CONTROL WRITES HELD" : "OPEN"),
+            .text("EXTERNAL DISPLAY", displays.isAttached
+                  ? "\(displays.describedName) — FORCED DISCHARGE HELD"
+                  : "NONE"),
             .text("HELD OFF", c.heldOffReason ?? "NO"),
         ]
         rows.append(.text("STATUS", statusLine(c)))
         return ReportSection("CHARGE CONTROL", rows,
-                             note: "DISCHARGING FLIPS THE MAC TO BATTERY POWER — DISPLAYS/HUBS SHARING THAT POWER PATH CAN BLANK BRIEFLY. SWITCHES ARE RATE-LIMITED TO ONCE PER MINUTE.")
+                             note: "FORCED DISCHARGE CUTS THE ADAPTER OFF — HELD WHILE ANY EXTERNAL DISPLAY IS CONNECTED, AND ALL CHARGE-CONTROL WRITES ARE HELD WHILE THE LID IS SHUT (THAT COMBINATION SLEEPS THE MAC). SWITCHES ARE RATE-LIMITED TO ONCE PER MINUTE.")
     }
 
     private static func capability(_ on: Bool, available: Bool) -> String {
@@ -163,6 +169,8 @@ public enum BatteryReport: PanelReporting {
         var parts: [String] = []
         if c.chargingInhibited { parts.append("CHARGING PAUSED") }
         if c.forcingDischarge { parts.append("FORCING DISCHARGE") }
+        if Lid.isClosed() ?? c.lidClosed { parts.append("LID CLOSED — WRITES HELD") }
+        if ExternalDisplay.read().isAttached { parts.append("MONITOR CONNECTED — DISCHARGE HELD") }
         if parts.isEmpty { parts.append("CHARGING ALLOWED") }
         parts.append("LIMIT SURVIVES APP QUIT + REBOOT (HELPER DAEMON)")
         return parts.joined(separator: " • ")

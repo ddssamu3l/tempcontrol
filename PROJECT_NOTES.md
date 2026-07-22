@@ -50,6 +50,26 @@ Rules that must not be relaxed:
   `atMax` after 20 s pinned means the target is likely unreachable at this
   load, and the UI must say so rather than silently sitting above target.
 
+## It is a CEILING, not a setpoint (naming rule)
+
+The dial sets the temperature the chip is **not allowed to exceed**. The loop
+only ever cools toward it; nothing in it heats the chip *up* to it. An idle
+machine sitting at 32 °C with the dial on 60 is the loop working correctly.
+
+Calling that "TARGET" made it read as a bug — a target implies something is
+seeking it. All user-facing wording is therefore **MAX TEMP / LIMIT /
+HEADROOM**, in the app and in `tempcontrol-cli` alike:
+
+| shown | means |
+| --- | --- |
+| `MAX TEMP` | the ceiling you set |
+| `HEADROOM` | `22.5°C SPARE` / `AT LIMIT` / `OVER +3.2°C` |
+| `FANS DRIVEN BY` | `MACOS (UNDER LIMIT)` when the loop hasn't engaged |
+
+**The wire field is still `targetTemp`, and stays that way.** Renaming a
+`Codable` property renames its JSON key, which breaks decoding against an
+already-installed helper (see the next section). Rename labels, never keys.
+
 ## Cross-process compatibility (app ↔ helper)
 
 The app and helper are separate binaries and nothing forces a user to keep them
@@ -84,6 +104,26 @@ too. Never delete these in favour of the synthesized version.
 
   The guard in `BatteryController.tick()`: engaging is refused while `Lid.isClosed()`, disengaging is always allowed (never strand a limit). Read lid state via `IOServiceGetMatchingService(..., IOServiceMatching("IOPMrootDomain"))` and `AppleClamshellState` — the registry *path* `IOService:/IOResources/IOPMrootDomain` does not resolve on macOS 26.
 - The app and CLI read lid state **locally**, not from the helper's reported field: an older helper omits it, and tolerant decoding turns that into "open" — wrong in the one direction that can sleep the machine.
+- **NEVER force-discharge while an external display is connected.** Forced
+  discharge (CH0I) cuts the adapter off outright, so a monitor on the Mac's
+  USB-C/Thunderbolt path can lose its link or its power — and if the lid also
+  happens to be shut, losing AC sleeps the whole machine. Charge *inhibit* is
+  NOT gated on displays: it's the everyday feature and it doesn't cut the
+  adapter.
+
+  The fallback is the point, not an apology: when discharge is withheld the
+  limit still holds via inhibit, so the pack simply drains through normal use
+  instead of being forced down. The UI says so, and the DISCHARGE toggle greys
+  out with the monitor named.
+
+  Detection is `ExternalDisplay.read()` in `Sources/Shared/Displays.swift`, and
+  it is **IOKit-based on purpose**. CoreGraphics is the obvious API but needs a
+  window-server session; the helper is a root LaunchDaemon without one, so CG
+  would report "no displays" and cheerfully do the dangerous thing. The rule
+  that separates "you have Thunderbolt ports" from "you have a monitor":
+  an `IOMobileFramebufferShim` counts only when `external == Yes` **and** it
+  carries `DisplayAttributes` (a real EDID). Empty ports publish the flag but
+  no EDID. `ProductAttributes.ProductName` gives the name for the message.
 - Discharge (CH0I), where it exists: turning ON is rate-limited to once/60s (OFF is immediate). Never add logic that toggles CH0I rapidly.
 - Master `enabled` switch in BatterySettings: off = cancel all modes + reset every key. Settings JSON decodes with per-field defaults (decodeIfPresent) so on-disk settings survive schema additions.
 

@@ -2,9 +2,16 @@ import SwiftUI
 import Shared
 
 /// The TEMP tab — the app's default view. Layout is deliberate:
-/// live temperature FIRST (big, colored), then the target controls (dial
-/// clearly labeled as the SET target, with the live temp marked on the same
-/// arc), then die sensors and fans.
+/// live temperature FIRST (big, colored), then the ceiling controls (dial
+/// labeled MAX TEMP, with the live temp marked on the same arc), then die
+/// sensors and fans.
+///
+/// Wording matters here and is not cosmetic. The dial sets a **ceiling, not a
+/// setpoint** — the loop cools toward it and never heats toward it, so an idle
+/// chip sitting 28 °C under the dial is the loop working, not a miss. Calling
+/// it "TARGET" made that read as a bug. The wire field is still `targetTemp`
+/// (renaming it would break decoding against an installed helper); only the
+/// user-facing labels changed.
 struct TempPanel: View {
     @EnvironmentObject var store: MetricsStore
 
@@ -75,11 +82,11 @@ struct ChipTempBox: View {
                             .font(TUI.mono(26, .bold))
                             .foregroundStyle(now.map(TUI.tempColor) ?? TUI.dim)
                     }
-                    StatCell(label: "TARGET",
+                    StatCell(label: "MAX TEMP",
                              value: target.map { "\(Int($0))°C" } ?? "OFF",
                              color: target != nil ? TUI.amber : TUI.dim)
                     if let now, let target {
-                        StatCell(label: "DELTA", value: deltaText(now - target),
+                        StatCell(label: "HEADROOM", value: deltaText(now - target),
                                  color: deltaColor(now - target))
                     }
                     StatCell(label: "AVG DIE",
@@ -98,7 +105,7 @@ struct ChipTempBox: View {
                           refValue: target)
                     .frame(height: 42)
                 Text(target != nil
-                     ? "─ HOTTEST DIE SENSOR   ┄ YOUR TARGET"
+                     ? "─ HOTTEST DIE SENSOR   ┄ YOUR MAX TEMP"
                      : "─ HOTTEST DIE SENSOR (LAST 2 MIN)")
                     .font(TUI.mono(8)).foregroundStyle(TUI.faint)
             }
@@ -110,18 +117,22 @@ struct ChipTempBox: View {
         return die.isEmpty ? nil : die.reduce(0, +) / Double(die.count)
     }
 
+    /// Read as headroom under the ceiling, not distance from a setpoint —
+    /// sitting far below the limit is the ideal state, not an error.
     private func deltaText(_ d: Double) -> String {
-        if abs(d) <= TC.deadband { return "IN BAND" }
-        return String(format: "%+.1f°C", d)
+        if d > TC.deadband { return String(format: "OVER +%.1f°C", d) }
+        if d >= -TC.deadband { return "AT LIMIT" }
+        return String(format: "%.1f°C SPARE", -d)
     }
 
     private func deltaColor(_ d: Double) -> Color {
-        if abs(d) <= TC.deadband { return TUI.mem }
-        return d > 0 ? TUI.red : TUI.cpu
+        if d > TC.deadband { return TUI.red }
+        if d >= -TC.deadband { return TUI.amber }
+        return TUI.mem
     }
 }
 
-// MARK: target + mode controls
+// MARK: max-temp + mode controls
 
 struct TempControlBox: View {
     @EnvironmentObject var store: MetricsStore
@@ -175,7 +186,7 @@ struct TempControlBox: View {
                     TempDial(value: $store.desiredTarget,
                              current: store.snap.hottest) { store.pushControl() }
                         .opacity(store.desiredEnabled ? 1 : 0.4)
-                    Text("○ TARGET (DRAG)   ● NOW")
+                    Text("○ MAX TEMP (DRAG)   ● NOW")
                         .font(TUI.mono(8)).foregroundStyle(TUI.faint)
                 }
 
@@ -197,7 +208,7 @@ struct TempControlBox: View {
                         StatCell(label: "TREND", value: trendValue, color: trendColor)
                     }
                     if control?.atMax == true {
-                        Text("FANS AT 100% AND STILL OVER TARGET — THIS WORKLOAD MAY\nNOT BE HOLDABLE AT \(Int(store.desiredTarget))°C. RAISE THE TARGET OR REDUCE LOAD.")
+                        Text("FANS AT 100% AND STILL OVER THE LIMIT — THIS WORKLOAD MAY NOT BE\nHOLDABLE UNDER \(Int(store.desiredTarget))°C. RAISE THE LIMIT OR REDUCE LOAD.")
                             .font(TUI.mono(8, .bold)).foregroundStyle(TUI.red)
                     }
                     if store.desiredEnabled {
@@ -205,7 +216,7 @@ struct TempControlBox: View {
                                             fanLevels: store.history.fanLevel,
                                             target: store.desiredTarget)
                             .frame(height: 74)
-                        Text("─ CHIP TEMP   ┄ TARGET   ▒ FAN LEVEL")
+                        Text("─ CHIP TEMP   ┄ MAX TEMP   ▒ FAN LEVEL")
                             .font(TUI.mono(8)).foregroundStyle(TUI.faint)
                     }
                 }
@@ -245,7 +256,7 @@ struct TempControlBox: View {
 
     private var modeText: String {
         guard store.desiredEnabled else { return "MACOS" }
-        return store.snap.control?.engaged == true ? "TEMPCONTROL" : "MACOS (IN BAND)"
+        return store.snap.control?.engaged == true ? "TEMPCONTROL" : "MACOS (UNDER LIMIT)"
     }
 
     private var modeColor: Color {
@@ -254,9 +265,9 @@ struct TempControlBox: View {
     }
 }
 
-/// 270° drag dial for the TARGET temperature. The white ring/knob is the
-/// target you set; the small colored dot is the live temp on the same scale,
-/// so the two can never be confused for each other.
+/// 270° drag dial for the MAX temperature. The white ring/knob is the ceiling
+/// you set; the small colored dot is the live temp on the same scale, so the
+/// two can never be confused for each other.
 struct TempDial: View {
     @Binding var value: Double
     var current: Double?
@@ -319,7 +330,7 @@ struct TempDial: View {
                                with: .color(TUI.fg), lineWidth: 2)
                 }
                 VStack(spacing: 0) {
-                    Text("SET TARGET")
+                    Text("SET MAX TEMP")
                         .font(TUI.mono(8)).foregroundStyle(TUI.dim)
                     Text("\(Int(value))°C")
                         .font(TUI.mono(22, .bold)).foregroundStyle(TUI.amber)

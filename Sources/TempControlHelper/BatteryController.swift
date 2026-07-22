@@ -28,8 +28,10 @@ final class BatteryController {
 
     private var inhibited = false
     private var discharging = false
-    /// Lid shut + why a wanted change was withheld — see the guard in tick().
+    /// Lid shut, monitors attached, and why a wanted change was withheld —
+    /// see the guards in tick().
     private var lidClosed = false
+    private var displays = ExternalDisplay.State()
     private var heldOffReason: String?
     private var topUp = false
     /// One-shot: user just lowered the limit below the current charge —
@@ -172,7 +174,7 @@ final class BatteryController {
             wantInhibit = true
         }
 
-        // -- lid guard --------------------------------------------------------
+        // -- safety guards ----------------------------------------------------
         // Engaging charge control briefly drops this machine onto battery
         // power. Lid open, that's an invisible flicker. Lid SHUT, macOS ends
         // clamshell operation and sleeps the whole Mac instantly — fans stop
@@ -184,15 +186,31 @@ final class BatteryController {
         // allowed — that's the direction that hands control back to macOS,
         // and refusing it could strand a charge limit indefinitely.
         lidClosed = Lid.isClosed() ?? false
+        displays = ExternalDisplay.read()
         heldOffReason = nil
         func mayWrite(engaging: Bool) -> Bool {
             guard engaging, lidClosed else { return true }
             heldOffReason = "LID CLOSED — APPLYING THIS WOULD SLEEP YOUR MAC"
             return false
         }
+        // Forced discharge is the harsher operation: it cuts the adapter off
+        // outright, so a monitor on the Mac's USB-C path can lose its link or
+        // its power, and on battery a shut lid sleeps the machine. Charge
+        // *inhibit* is not gated on displays — that's the everyday feature and
+        // it doesn't cut the adapter. When discharge is withheld the limit
+        // still holds via inhibit; the pack just drains through normal use
+        // instead of being forced down.
+        func mayDischarge() -> Bool {
+            guard displays.isAttached else { return true }
+            heldOffReason = "\(displays.describedName) CONNECTED — FORCED DISCHARGE COULD "
+                + "CUT ITS POWER. CHARGING IS PAUSED INSTEAD; THE BATTERY WILL DRAIN AS YOU USE IT."
+            return false
+        }
 
         // -- write only on change --------------------------------------------
-        if wantDischarge != discharging, let dischargeKey, mayWrite(engaging: wantDischarge) {
+        if wantDischarge != discharging, let dischargeKey,
+           mayWrite(engaging: wantDischarge),
+           !wantDischarge || mayDischarge() {
             // ON is rate-limited (display-blank protection); OFF is immediate.
             let allowed = !wantDischarge
                 || Date().timeIntervalSince(lastDischargeFlip) >= dischargeFlipCooldown
@@ -242,6 +260,9 @@ final class BatteryController {
         s.inhibitKeys = inhibitWrites.map(\.key)
         s.dischargeKey = dischargeKey
         s.lidClosed = Lid.isClosed() ?? false
+        let d = ExternalDisplay.read()
+        s.externalDisplays = d.names
+        s.externalDisplayAttached = d.isAttached
         s.heldOffReason = heldOffReason
         return s
     }

@@ -224,9 +224,9 @@ struct ChargeControlBox: View {
 
             HStack(spacing: 6) {
                 toggle("DISCHARGE TO LIMIT", \.autoDischarge,
-                       disabled: control?.dischargeSupported == false)
+                       disabled: control?.dischargeSupported == false || displays.isAttached)
                 toggle("SAILING −\(store.batterySettings.sailBelowPct)%", \.sailing)
-                toggle("HEAT <\(Int(store.batterySettings.heatLimitC))°C", \.heatProtect)
+                toggle("KEEP BATTERY <\(Int(store.batterySettings.heatLimitC))°C", \.heatProtect)
                 toggle("MAGSAFE LED", \.magsafeLED,
                        disabled: control?.ledSupported == false)
             }
@@ -254,6 +254,14 @@ struct ChargeControlBox: View {
                     .font(TUI.mono(9, .bold)).foregroundStyle(TUI.red)
             }
 
+            // Standing constraint, shown whether or not a write was withheld,
+            // so the greyed-out DISCHARGE button is never a mystery. Read
+            // locally — see the note in BatteryReport.
+            if displays.isAttached, control?.dischargeSupported != false {
+                Text("🖥 \(displays.describedName) CONNECTED — DISCHARGE IS UNAVAILABLE.\nForcing a discharge switches the adapter off, which can drop a monitor's\nlink or its power, and would sleep your Mac outright if the lid were shut.\nCharging still pauses at your limit; the battery drains as you use it.")
+                    .font(TUI.mono(8)).foregroundStyle(TUI.amber)
+            }
+
             // Lid read locally — see the note in BatteryReport.
             if Lid.isClosed() ?? (control?.lidClosed == true) {
                 Text("⚠ LID IS CLOSED. Your Mac only stays awake with the lid shut while\nit has AC power, and applying charge control briefly drops it onto\nbattery — which would sleep the machine instantly. Changes are held\nuntil you open the lid.")
@@ -267,6 +275,11 @@ struct ChargeControlBox: View {
                 .font(TUI.mono(8)).foregroundStyle(TUI.faint)
         }
     }
+
+    /// Displays read locally, not from the helper's payload — an older helper
+    /// omits the field and tolerant decoding would turn that into "no monitor",
+    /// which is wrong in the one direction that can blank a screen.
+    private var displays: ExternalDisplay.State { ExternalDisplay.read() }
 
     private var limitBinding: Binding<Double> {
         Binding(get: { Double(store.batterySettings.limitPct) },
@@ -291,6 +304,7 @@ struct ChargeControlBox: View {
         if c.chargingInhibited { parts.append("CHARGING PAUSED") }
         if c.forcingDischarge { parts.append("FORCING DISCHARGE") }
         if Lid.isClosed() ?? c.lidClosed { parts.append("LID CLOSED — WRITES HELD") }
+        if displays.isAttached { parts.append("MONITOR CONNECTED — DISCHARGE HELD") }
         if parts.isEmpty { parts.append("CHARGING ALLOWED") }
         parts.append("LIMIT SURVIVES APP QUIT + REBOOT (HELPER DAEMON)")
         return parts.joined(separator: " • ")

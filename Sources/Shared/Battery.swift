@@ -174,6 +174,12 @@ public struct BatteryControlState: Codable {
     public var dischargeKey: String?
     /// Lid shut right now — charge-control writes are held off (see `Lid`).
     public var lidClosed = false
+    /// EDID names of attached external displays. Non-empty = forced discharge
+    /// is unavailable, because cutting the adapter can drop their link or
+    /// power (see `ExternalDisplay`).
+    public var externalDisplays: [String] = []
+    /// True when a monitor is attached but didn't publish a usable name.
+    public var externalDisplayAttached = false
     /// Set when a wanted change was deliberately NOT written, and why.
     public var heldOffReason: String?
     public init() {}
@@ -193,6 +199,8 @@ public struct BatteryControlState: Codable {
         inhibitKeys = try c.decodeIfPresent([String].self, forKey: .inhibitKeys) ?? []
         dischargeKey = try c.decodeIfPresent(String.self, forKey: .dischargeKey)
         lidClosed = try c.decodeIfPresent(Bool.self, forKey: .lidClosed) ?? false
+        externalDisplays = try c.decodeIfPresent([String].self, forKey: .externalDisplays) ?? []
+        externalDisplayAttached = try c.decodeIfPresent(Bool.self, forKey: .externalDisplayAttached) ?? false
         heldOffReason = try c.decodeIfPresent(String.self, forKey: .heldOffReason)
     }
 }

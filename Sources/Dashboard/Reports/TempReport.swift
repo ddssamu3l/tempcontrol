@@ -24,13 +24,11 @@ public enum TempReport: PanelReporting {
 
         var rows: [ReportRow] = [
             .temp("NOW", s.hottest),
-            ReportRow("TARGET", target.map(Fmt.tempWhole) ?? "OFF", raw: target, unit: "C"),
+            ReportRow("MAX TEMP", target.map(Fmt.tempWhole) ?? "OFF", raw: target, unit: "C"),
         ]
         if let now = s.hottest, let target {
             let d = now - target
-            rows.append(ReportRow("DELTA",
-                                  abs(d) <= TC.deadband ? "IN BAND" : Fmt.tempDelta(d),
-                                  raw: d, unit: "C"))
+            rows.append(ReportRow("HEADROOM", headroomText(d), raw: d, unit: "C"))
         }
         rows.append(.temp("AVG DIE", avgDie))
         rows.append(.temp("HOTTEST DIE", s.hottest))
@@ -38,7 +36,7 @@ public enum TempReport: PanelReporting {
         rows.append(.text("THERMAL", s.pm?.thermalPressure?.uppercased() ?? Fmt.none))
 
         return ReportSection("CHIP TEMP — LIVE", rows,
-                             note: "THE HOTTEST DIE SENSOR IS WHAT THE CONTROLLER REGULATES AGAINST")
+                             note: "MAX TEMP IS A CEILING, NOT A SETPOINT — THE CONTROLLER ONLY ACTS WHEN THE HOTTEST DIE SENSOR APPROACHES IT, AND NEVER HEATS THE CHIP UP TO IT")
     }
 
     // MARK: TEMP CONTROL
@@ -65,7 +63,7 @@ public enum TempReport: PanelReporting {
             .watts("SYS POWER", s.systemPowerW),
             .text("LOW POWER MODE", c?.lowPowerMode.map(Fmt.onOff) ?? Fmt.none),
             .text("MODE", c?.enabled == true ? "MAX COOLING" : "MACOS DEFAULT"),
-            .optional("CONTROL TARGET", c?.targetTemp, Fmt.tempWhole, unit: "C"),
+            .optional("CONTROL MAX TEMP", c?.targetTemp, Fmt.tempWhole, unit: "C"),
             .text("ENGAGED", c.map { Fmt.yesNo($0.engaged) } ?? Fmt.none),
             .text("AT MAX", c.map { Fmt.yesNo($0.atMax) } ?? Fmt.none),
             .temp("HELPER HOTTEST", c?.hottestTemp),
@@ -78,15 +76,22 @@ public enum TempReport: PanelReporting {
             .int("HELPER VERSION", c?.helperVersion),
         ]
         if c?.atMax == true {
-            rows.append(.text("WARNING", "FANS AT 100% AND STILL OVER TARGET"))
+            rows.append(.text("WARNING", "FANS AT 100% AND STILL OVER THE LIMIT"))
         }
         return ReportSection("TEMP CONTROL", rows,
-                             note: "PI CONTROL: P KICKS ON SPIKES, I LEARNS AND HOLDS THE STEADY FAN SPEED AT TARGET")
+                             note: "POWER-AWARE PID: FEEDFORWARD FROM WATTS, P KICKS ON SPIKES, LEARNED CONDUCTANCE HOLDS THE CHIP UNDER THE LIMIT")
+    }
+
+    /// Headroom under the ceiling, phrased the same way as the app's cell.
+    private static func headroomText(_ d: Double) -> String {
+        if d > TC.deadband { return "OVER +" + Fmt.temp(d) }
+        if d >= -TC.deadband { return "AT LIMIT" }
+        return Fmt.temp(-d) + " SPARE"
     }
 
     private static func modeText(_ c: ControlStatus?) -> String {
         guard c?.enabled == true else { return "MACOS" }
-        return c?.engaged == true ? "TEMPCONTROL" : "MACOS (IN BAND)"
+        return c?.engaged == true ? "TEMPCONTROL" : "MACOS (UNDER LIMIT)"
     }
 
     // MARK: FANS
