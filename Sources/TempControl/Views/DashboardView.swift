@@ -25,6 +25,8 @@ struct DashboardView: View {
                             TempPanel()
                         case .soc:
                             SoCView()
+                        case .tasks:
+                            TasksView()
                         case .storage:
                             StoragePanel()
                         case .battery:

@@ -142,8 +142,27 @@ public struct HelperSample: Codable {
     public var pm: PMSample?
     public var control: ControlStatus
     public var battery: BatteryControlState?
-    public init(pm: PMSample?, control: ControlStatus, battery: BatteryControlState? = nil) {
+    /// Top processes by resource use, root-gathered so the list is complete
+    /// and carries per-process GPU. nil = the app didn't ask for tasks this
+    /// sample (the panel wasn't open), so it isn't wasted work every heartbeat.
+    public var tasks: [ProcInfo]?
+    /// True when this machine's powermetrics reports per-process GPU. When
+    /// false the app knows to show "N/A" rather than an empty GPU column.
+    public var gpuAccounting = false
+    public init(pm: PMSample?, control: ControlStatus,
+                battery: BatteryControlState? = nil,
+                tasks: [ProcInfo]? = nil, gpuAccounting: Bool = false) {
         self.pm = pm; self.control = control; self.battery = battery
+        self.tasks = tasks; self.gpuAccounting = gpuAccounting
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pm = try c.decodeIfPresent(PMSample.self, forKey: .pm)
+        control = try c.decodeIfPresent(ControlStatus.self, forKey: .control) ?? ControlStatus()
+        battery = try c.decodeIfPresent(BatteryControlState.self, forKey: .battery)
+        tasks = try c.decodeIfPresent([ProcInfo].self, forKey: .tasks)
+        gpuAccounting = try c.decodeIfPresent(Bool.self, forKey: .gpuAccounting) ?? false
     }
 }
 

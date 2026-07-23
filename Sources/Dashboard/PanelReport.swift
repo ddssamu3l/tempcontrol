@@ -93,6 +93,7 @@ public enum PanelReports {
         switch panel {
         case .temp: return TempReport.self
         case .soc: return SoCReport.self
+        case .tasks: return TasksReport.self
         case .storage: return StorageReport.self
         case .battery: return BatteryReport.self
         }

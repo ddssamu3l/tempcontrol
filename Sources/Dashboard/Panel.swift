@@ -12,6 +12,7 @@ import Foundation
 public enum Panel: String, CaseIterable, Sendable {
     case temp = "TEMP"
     case soc = "SOC"
+    case tasks = "TASKS"
     case storage = "STORAGE"
     case battery = "BATTERY"
 

@@ -26,6 +26,13 @@ public struct Snapshot {
     public var pm: PMSample?
     public var control: ControlStatus?
     public var helperAvailable = false
+    /// Top processes by resource use. Root-gathered (complete, with per-process
+    /// GPU) when the helper answers; otherwise the app's own libproc list —
+    /// same-uid processes, CPU/mem/disk but no GPU. `tasksComplete` says which.
+    public var tasks: [ProcInfo] = []
+    public var tasksComplete = false
+    /// This machine's powermetrics reports per-process GPU. False = show "N/A".
+    public var gpuAccounting = false
 
     public init() {}
 }

@@ -70,6 +70,38 @@ HEADROOM**, in the app and in `tempcontrol-cli` alike:
 `Codable` property renames its JSON key, which breaks decoding against an
 already-installed helper (see the next section). Rename labels, never keys.
 
+## Per-process sampling (the TASKS panel)
+
+"What's eating my CPU and GPU cores." Two data sources, each doing what it's
+best at, merged by pid:
+
+- **libproc** (`Sources/Shared/ProcessSampler.swift`) — `proc_listpids` +
+  `proc_pid_rusage(RUSAGE_INFO_V6)` gives CPU time, memory footprint, disk I/O
+  and energy. Works unprivileged for **same-uid** processes (the app's fallback
+  list), and as **root** in the helper it reaches every process. libproc is not
+  in Swift's Darwin module map, so the C symbols are bound with `@_silgen_name`;
+  `proc_pid_rusage` writes the whole struct into the buffer, so pass a real
+  `rusage_info_v6`, never a pointer-sized slot (silent heap smash otherwise).
+- **powermetrics `tasks` sampler** (helper only, root) — the ONLY source of
+  **per-process GPU** (`gputime_ms_per_s`, via `--show-process-gpu`). rusage has
+  no GPU field on this OS. The man page warns it's "only available on certain
+  hardware", so `HelperSample.gpuAccounting` reports whether a real number was
+  ever seen and the UI shows "N/A" rather than a silently empty column.
+
+**THE mach-timebase GOTCHA — do not regress.** `ri_user_time` /
+`ri_system_time` (and `proc_pidinfo` task times) come back in **mach time units,
+not nanoseconds, on Apple Silicon**. The timebase here is numer/denom = 125/3
+(~41.7 ns/tick). Treat them as ns and every process reads ~2% — a fully pinned
+core looks idle. Convert with `mach_timebase_info` (queried at runtime, never
+hardcoded — it differs across chip families). Verified against `ps`: a busy
+loop reads 100.4% after conversion, 2.4% without. Energy (nanojoules) and disk
+(bytes) are NOT times and must not be scaled.
+
+The panel only samples while it's on screen (`store.showingTasks` → the
+`sample` XPC request's `wantTasks` flag → the helper keeps the tasks sampler
+alive). GPU ms/s is a rate, so a cold sampler returns nothing: the CLI pre-warms
+the helper and waits ~1.4 s before the reading that counts.
+
 ## Cross-process compatibility (app ↔ helper)
 
 The app and helper are separate binaries and nothing forces a user to keep them

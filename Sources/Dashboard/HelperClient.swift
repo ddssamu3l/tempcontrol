@@ -51,8 +51,13 @@ public final class HelperClient {
 
     // MARK: typed API (completions run on an arbitrary queue)
 
-    public func fetchSample(_ completion: @escaping (HelperSample?) -> Void) {
-        request("sample") { completion(self.decodeJSON($0, HelperSample.self)) }
+    /// `wantTasks` asks the helper to include the per-process list (with GPU).
+    /// Off by default so the common heartbeat stays cheap — only the TASKS
+    /// panel turns it on.
+    public func fetchSample(wantTasks: Bool = false, _ completion: @escaping (HelperSample?) -> Void) {
+        request("sample", bools: ["wantTasks": wantTasks]) {
+            completion(self.decodeJSON($0, HelperSample.self))
+        }
     }
 
     public func heartbeat(_ completion: @escaping (ControlStatus?) -> Void) {

@@ -14,6 +14,7 @@ final class HelperCore {
     private lazy var fans = FanController(smc: smc, sensors: sensors)
     private lazy var battery = BatteryController(smc: smc)
     private let pm = PowerMetricsStreamer()
+    private let procs = ProcessSampler()
     private let queue = DispatchQueue(label: "tempcontrol.helper")
     private var lastHeartbeat = Date()
     private var listener: xpc_connection_t?
@@ -51,6 +52,32 @@ final class HelperCore {
         }
         t.resume()
         timer = t
+    }
+
+    /// Root-gathered process list (all processes), with per-process GPU ms/s
+    /// and energy impact overlaid from the powermetrics tasks sampler. Trimmed
+    /// to the processes actually worth showing so the XPC payload stays small:
+    /// the union of the top consumers by CPU, GPU, and memory.
+    private func topTasks(limit: Int = 45) -> [ProcInfo] {
+        var list = procs.sample()
+        let gpu = pm.latestTasks
+        if !gpu.isEmpty {
+            for i in list.indices {
+                if let t = gpu[list[i].pid] {
+                    list[i].gpuMsPerSec = t.gpu
+                    list[i].energyImpact = t.energy
+                }
+            }
+        }
+        // Keep whoever lands in the top `limit` of ANY dimension — a heavy-GPU
+        // process shouldn't be dropped just because its CPU is low.
+        func topPids(_ key: (ProcInfo) -> Double) -> Set<Int32> {
+            Set(list.sorted { key($0) > key($1) }.prefix(limit).map(\.pid))
+        }
+        var keep = topPids { $0.cpuPercent }
+        keep.formUnion(topPids { $0.gpuMsPerSec ?? 0 })
+        keep.formUnion(topPids { Double($0.memBytes) })
+        return list.filter { keep.contains($0.pid) }
     }
 
     /// SoC watts, but only if the sample is recent enough to steer by.
@@ -107,7 +134,15 @@ final class HelperCore {
             pm.markWanted()
             var status = fans.status()
             status.lowPowerMode = readLowPowerMode()
-            encode(HelperSample(pm: pm.latest, control: status, battery: battery.state()),
+            // The TASKS panel asks for processes explicitly, so the (heavier)
+            // per-process gather and GPU sampler only run while it's open.
+            var tasks: [ProcInfo]?
+            if xpc_dictionary_get_bool(msg, "wantTasks") {
+                pm.markTasksWanted()
+                tasks = topTasks()
+            }
+            encode(HelperSample(pm: pm.latest, control: status, battery: battery.state(),
+                                tasks: tasks, gpuAccounting: pm.gpuAccounting),
                    into: reply)
 
         case "setBattery":

@@ -88,8 +88,13 @@ if command.lowercased() == "all" {
 let collector = SnapshotCollector()
 let sysInfo = collector.sysInfo
 // Two samples with a settle gap: per-core load and disk throughput are rates
-// and simply don't exist from a single reading.
-let snap = collector.collect()
+// and simply don't exist from a single reading. The TASKS panel needs a
+// longer gap still — per-process CPU% and GPU ms/s are rates too, and the
+// helper's powermetrics sampler has to warm up.
+collector.wantTasks = panels.contains(.tasks)
+let snap = collector.wantTasks
+    ? collector.collect(settleFor: 1.4, helperTimeout: 2.5)
+    : collector.collect()
 let reports = panels.map { PanelReports.report($0, snap, sysInfo) }
 
 // MARK: - JSON output (the agent-facing path)

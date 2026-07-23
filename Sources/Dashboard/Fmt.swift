@@ -80,6 +80,22 @@ public enum Fmt {
         return String(format: "%.0fK/s", bps / 1024)
     }
 
+    // MARK: processes (TASKS panel)
+
+    /// `246%` — top-style CPU where 100% is one core. Already a percentage.
+    public static func cpuPercent(_ pct: Double) -> String { String(format: "%.0f%%", pct) }
+    /// `2.5×` — the same number as cores-worth, the honest "eating my cores" unit.
+    public static func cores(_ cpuPercent: Double) -> String { String(format: "%.1f×", cpuPercent / 100) }
+    /// GPU work as a busy percentage: `gpuMsPerSec` of 1000 = a saturated GPU.
+    public static func gpuBusy(_ msPerSec: Double) -> String { String(format: "%.0f%%", msPerSec / 10) }
+    /// `1.3G` / `842M` — process footprint from a byte count.
+    public static func mem(_ bytes: UInt64) -> String {
+        let g = Double(bytes) / 1_073_741_824
+        if g >= 10 { return String(format: "%.0fG", g) }
+        if g >= 1 { return String(format: "%.1fG", g) }
+        return String(format: "%.0fM", Double(bytes) / 1_048_576)
+    }
+
     // MARK: frequency
 
     /// `1284MHz`

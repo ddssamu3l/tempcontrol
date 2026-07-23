@@ -20,6 +20,12 @@ public final class SnapshotCollector {
     private let sensors = HIDSensors()
     private let smc = SMC()
     private let batteryReader = BatteryReader()
+    private let procSampler = ProcessSampler()
+
+    /// When true, `sampleLocal()` also samples the process list (libproc) and
+    /// the helper request asks for the complete root-gathered list. Off by
+    /// default so the per-tick cost is only paid while the TASKS panel is open.
+    public var wantTasks = false
 
     /// Exposed so the app can issue control commands over the same client.
     public let helper = HelperClient()
@@ -46,6 +52,12 @@ public final class SnapshotCollector {
         s.systemPowerW = smc?.double("PSTR")
         s.adapterPowerW = smc?.double("PDTR")
         s.battery = batteryReader.read()
+        // Unprivileged fallback list: same-uid processes only, no GPU. The
+        // helper reply replaces this with the complete list when available.
+        if wantTasks {
+            s.tasks = procSampler.sample()
+            s.tasksComplete = false
+        }
         return s
     }
 
@@ -59,6 +71,15 @@ public final class SnapshotCollector {
                         helperTimeout: TimeInterval = 1.5) -> Snapshot {
         // Prime the rate counters, wait, then take the reading that counts.
         _ = sampleLocal()
+        // When tasks are wanted, kick the helper first so its powermetrics
+        // per-process sampler is already warm by the time we do the real
+        // fetch — GPU ms/s needs an interval to exist, and a cold sampler
+        // returns an empty tasks list. The reply is thrown away.
+        if wantTasks {
+            let warm = DispatchSemaphore(value: 0)
+            helper.fetchSample(wantTasks: true) { _ in warm.signal() }
+            _ = warm.wait(timeout: .now() + helperTimeout)
+        }
         if settleFor > 0 { Thread.sleep(forTimeInterval: settleFor) }
         var s = sampleLocal()
 
@@ -67,6 +88,12 @@ public final class SnapshotCollector {
             s.pm = helperSample.pm
             s.control = helperSample.control
             s.batteryControl = helperSample.battery
+            s.gpuAccounting = helperSample.gpuAccounting
+            // Prefer the root-gathered list — it's complete and carries GPU.
+            if let tasks = helperSample.tasks {
+                s.tasks = tasks
+                s.tasksComplete = true
+            }
         } else {
             s.helperAvailable = false
         }
@@ -79,7 +106,7 @@ public final class SnapshotCollector {
     private func fetchHelperSample(timeout: TimeInterval) -> HelperSample? {
         let sem = DispatchSemaphore(value: 0)
         let box = ResultBox()
-        helper.fetchSample { sample in
+        helper.fetchSample(wantTasks: wantTasks) { sample in
             box.value = sample
             sem.signal()
         }

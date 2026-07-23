@@ -50,6 +50,11 @@ final class MetricsStore: ObservableObject {
         didSet { if popoverOpen != oldValue { restartTimer() } }
     }
 
+    /// True only while the TASKS panel is on screen. Gates the per-process
+    /// sample (libproc locally, powermetrics GPU in the helper) so the cost is
+    /// paid only when someone's looking. Set by `TasksView`.
+    @Published var showingTasks = false
+
     init() {
         restartTimer()
     }
@@ -67,13 +72,15 @@ final class MetricsStore: ObservableObject {
     private func sampleOnce() {
         // Local (unprivileged) half of the snapshot; the helper reply is
         // folded in below, exactly as before.
+        let wantTasks = showingTasks
+        collector.wantTasks = wantTasks           // adds the libproc fallback list
         let s = collector.sampleLocal()
 
         let wantFullSample = popoverOpen
         let needHeartbeat = desiredEnabled
 
         if wantFullSample {
-            helper.fetchSample { [weak self] helperSample in
+            helper.fetchSample(wantTasks: wantTasks) { [weak self] helperSample in
                 self?.publish(s, helper: helperSample, helperTried: true)
             }
         } else if needHeartbeat {
@@ -94,6 +101,12 @@ final class MetricsStore: ObservableObject {
             s.pm = helperSample.pm
             s.control = helperSample.control
             s.batteryControl = helperSample.battery
+            s.gpuAccounting = helperSample.gpuAccounting
+            // Root-gathered list wins over the local fallback: complete + GPU.
+            if let tasks = helperSample.tasks {
+                s.tasks = tasks
+                s.tasksComplete = true
+            }
         } else if helperTried {
             s.helperAvailable = false
         } else {
