@@ -167,6 +167,10 @@ public struct BatteryControlState: Codable {
     public var ledSupported = false
     public var chargingInhibited = false
     public var forcingDischarge = false
+    /// Charging is paused (and forced discharge suppressed) specifically
+    /// because the pack is over the heat limit — distinct from "paused at your
+    /// limit", so the UI can explain a pause that happens below the limit.
+    public var heatPaused = false
     public var topUpActive = false
     public var calibration: CalibrationPhase = .idle
     /// Which keys were discovered — shown in diagnostics.
@@ -194,6 +198,7 @@ public struct BatteryControlState: Codable {
         ledSupported = try c.decodeIfPresent(Bool.self, forKey: .ledSupported) ?? false
         chargingInhibited = try c.decodeIfPresent(Bool.self, forKey: .chargingInhibited) ?? false
         forcingDischarge = try c.decodeIfPresent(Bool.self, forKey: .forcingDischarge) ?? false
+        heatPaused = try c.decodeIfPresent(Bool.self, forKey: .heatPaused) ?? false
         topUpActive = try c.decodeIfPresent(Bool.self, forKey: .topUpActive) ?? false
         calibration = try c.decodeIfPresent(CalibrationPhase.self, forKey: .calibration) ?? .idle
         inhibitKeys = try c.decodeIfPresent([String].self, forKey: .inhibitKeys) ?? []

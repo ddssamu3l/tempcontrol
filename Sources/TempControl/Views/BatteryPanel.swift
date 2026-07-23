@@ -254,6 +254,14 @@ struct ChargeControlBox: View {
                     .font(TUI.mono(9, .bold)).foregroundStyle(TUI.red)
             }
 
+            // Heat protection acting: explain a pause that can happen BELOW the
+            // limit, so it doesn't read as a bug. Separate loop from fan
+            // control — this pauses charging; the fans cool the die.
+            if control?.heatPaused == true {
+                Text("🌡 BATTERY OVER \(Int(store.batterySettings.heatLimitC))°C — CHARGING PAUSED (AND DISCHARGE HELD)\nUNTIL IT COOLS. THE FANS COOL THE CHIP; THIS COOLS THE PACK.")
+                    .font(TUI.mono(8)).foregroundStyle(TUI.amber)
+            }
+
             // Standing constraint, shown whether or not a write was withheld,
             // so the greyed-out DISCHARGE button is never a mystery. Read
             // locally — see the note in BatteryReport.
@@ -301,7 +309,8 @@ struct ChargeControlBox: View {
     private var statusLine: String {
         guard let c = store.snap.batteryControl else { return "" }
         var parts: [String] = []
-        if c.chargingInhibited { parts.append("CHARGING PAUSED") }
+        if c.heatPaused { parts.append("BATTERY HOT — PAUSED TO COOL") }
+        else if c.chargingInhibited { parts.append("CHARGING PAUSED") }
         if c.forcingDischarge { parts.append("FORCING DISCHARGE") }
         if Lid.isClosed() ?? c.lidClosed { parts.append("LID CLOSED — WRITES HELD") }
         if displays.isAttached { parts.append("MONITOR CONNECTED — DISCHARGE HELD") }

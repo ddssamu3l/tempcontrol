@@ -143,7 +143,9 @@ public enum BatteryReport: PanelReporting {
             .text("MAGSAFE LED", capability(g.magsafeLED, available: c.ledSupported)),
             .text("TOP UP", Fmt.onOff(c.topUpActive)),
             .text("CALIBRATION", c.calibration == .idle ? "IDLE" : c.calibration.label),
-            .text("CHARGING INHIBITED", Fmt.yesNo(c.chargingInhibited)),
+            .text("CHARGING INHIBITED", c.chargingInhibited
+                  ? (c.heatPaused ? "YES (BATTERY TOO HOT)" : "YES")
+                  : "NO"),
             .text("FORCING DISCHARGE", Fmt.yesNo(c.forcingDischarge)),
             .text("INHIBIT KEYS", c.inhibitKeys.isEmpty ? Fmt.none : c.inhibitKeys.joined(separator: "+")),
             .text("DISCHARGE KEY", c.dischargeKey ?? "NOT FOUND"),
@@ -167,7 +169,8 @@ public enum BatteryReport: PanelReporting {
 
     private static func statusLine(_ c: BatteryControlState) -> String {
         var parts: [String] = []
-        if c.chargingInhibited { parts.append("CHARGING PAUSED") }
+        if c.heatPaused { parts.append("BATTERY HOT — CHARGING PAUSED TO COOL") }
+        else if c.chargingInhibited { parts.append("CHARGING PAUSED") }
         if c.forcingDischarge { parts.append("FORCING DISCHARGE") }
         if Lid.isClosed() ?? c.lidClosed { parts.append("LID CLOSED — WRITES HELD") }
         if ExternalDisplay.read().isAttached { parts.append("MONITOR CONNECTED — DISCHARGE HELD") }

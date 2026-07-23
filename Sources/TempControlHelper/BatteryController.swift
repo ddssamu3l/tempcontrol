@@ -28,6 +28,10 @@ final class BatteryController {
 
     private var inhibited = false
     private var discharging = false
+    /// Heat-protection hysteresis state: once tripped it stays engaged until
+    /// the pack cools `heatBand` below the limit, so charging doesn't flap.
+    private var heatHolding = false
+    private let heatBand: Double = 2
     /// Lid shut, monitors attached, and why a wanted change was withheld —
     /// see the guards in tick().
     private var lidClosed = false
@@ -151,6 +155,28 @@ final class BatteryController {
             }
         }
 
+        // -- heat protection (evaluated first — it can veto BOTH charging and
+        //    forced discharge) ------------------------------------------------
+        // "Keep battery under N°C" is not merely "stop charging". A hot pack
+        // must also not be actively DRAINED: discharge current heats the cells
+        // too, so force-discharging a hot battery fights the very goal. When
+        // this trips it pauses charging AND suppresses forced discharge, so the
+        // pack simply rests and cools. Hysteresis (a `heatBand` resume gap)
+        // stops it flapping charging on/off around the threshold — the same
+        // idea as sailing, applied to temperature instead of charge level.
+        //
+        // Note this is entirely independent of the FAN loop: that one cools the
+        // DIE (its own sensors, its own actuator). This cools the BATTERY by
+        // withholding charge. Different heat source, different lever; they
+        // share no state and never contend. See PROJECT_NOTES.
+        if settings.heatProtect, let t = info.temperatureC {
+            if t > settings.heatLimitC { heatHolding = true }
+            else if t < settings.heatLimitC - heatBand { heatHolding = false }
+        } else {
+            heatHolding = false
+        }
+        let batteryTooHot = heatHolding
+
         // -- discharge decision ----------------------------------------------
         let needsDischarge: Bool
         if calibration == .discharging {
@@ -159,7 +185,11 @@ final class BatteryController {
             if pct <= target + 0.5 { drainToLimit = false }   // one-shot done
             needsDischarge = (settings.autoDischarge || drainToLimit) && pct > target + 0.5
         }
-        let wantDischarge = needsDischarge && dischargeKey != nil && info.externalConnected
+        // A hot pack is never force-discharged — cooling wins over draining to
+        // the limit. The intent (autoDischarge / drainToLimit / calibration) is
+        // preserved and resumes once the pack cools past the resume threshold.
+        let wantDischarge = needsDischarge && dischargeKey != nil
+            && info.externalConnected && !batteryTooHot
 
         // -- charging decision (with sailing hysteresis) ---------------------
         var wantInhibit = inhibited
@@ -170,9 +200,7 @@ final class BatteryController {
             if pct <= resumeAt { wantInhibit = false }
         }
         if wantDischarge { wantInhibit = true }
-        if settings.heatProtect, let t = info.temperatureC, t > settings.heatLimitC {
-            wantInhibit = true
-        }
+        if batteryTooHot { wantInhibit = true }
 
         // -- safety guards ----------------------------------------------------
         // Engaging charge control briefly drops this machine onto battery
@@ -255,6 +283,7 @@ final class BatteryController {
         s.ledSupported = ledSupported
         s.chargingInhibited = inhibited
         s.forcingDischarge = discharging
+        s.heatPaused = heatHolding
         s.topUpActive = topUp
         s.calibration = calibration
         s.inhibitKeys = inhibitWrites.map(\.key)
@@ -276,6 +305,7 @@ final class BatteryController {
         if ledSupported { smc.writeUInt8("ACLC", 0) }
         inhibited = false
         discharging = false
+        heatHolding = false
         lastLED = nil
     }
 

@@ -114,6 +114,37 @@ Every type sent over XPC (`ControlStatus`, `PMSample`, `BatteryControlState`,
 `decodeIfPresent`**. Adding a field to any of them means adding a line there
 too. Never delete these in favour of the synthesized version.
 
+## Two heat loops that must NOT be conflated
+
+There are two independent thermal controllers and they share no state:
+
+- **Fan control** (`FanController`) cools the **die**. Input: hottest die
+  sensor + SoC watts. Actuator: fan speed. Knows nothing about the battery
+  (verified: zero battery/charge references in `FanController.swift`).
+- **Heat protection** (`BatteryController`, "keep battery under N°C") cools the
+  **battery**. Input: pack temperature. Actuator: charge inhibit (+ suppressing
+  forced discharge). Knows nothing about the die.
+
+Different heat source, different lever, different tick (fans 2 s, battery 10 s).
+They do not contend, and the fan loop is deliberately NOT coupled to battery
+temperature: the pack heats mostly from charging and from chassis soak off a hot
+SoC — and when the SoC is hot the die is hot, so the fan loop is *already*
+spinning up on its own signal. Coupling battery temp into the die loop would
+just make the fans roar for a warm pack while the chip is cool. If that coupling
+is ever wanted it's a conscious product decision, not a bug to "fix".
+
+Heat protection's own rules (these ARE easy to get subtly wrong):
+- When it trips it pauses charging **and suppresses forced discharge** — you do
+  not actively drain a pack you're trying to cool; discharge current heats the
+  cells too. The discharge *intent* (autoDischarge / drainToLimit / calibration)
+  is preserved and resumes once cool.
+- **Hysteresis, like sailing:** trips at `> heatLimitC`, releases only below
+  `heatLimitC - heatBand` (2 °C). Without it, charging flaps on/off around the
+  threshold.
+- It can pause charging **below** the user's charge limit, which looks like a
+  bug unless surfaced — so `heatPaused` is its own status field, distinct from
+  "paused at limit", and the app/CLI say "battery hot — paused to cool".
+
 ## Battery rules (AlDente-replacement feature, added July 2026)
 - Battery settings deliberately **persist** across app quit and reboot (that's the feature) — the ONE exception to "revert on exit".
 - Consequence: `uninstall.sh` MUST run `tempcontrol-helper --reset-battery` before deleting the helper, or a charge limit could outlive the app. Never remove that step.
